@@ -7,11 +7,13 @@
 #   store (default)     — store-web SPA, assets domain e.g. assets.example.com,
 #                         Pages project infinia-assets
 #   monitor (--monitor) — monitor-web SPA (split deployment's monitor host),
-#                         staged under the /monitor subtree of the SAME Pages
-#                         project/domain as the store by default (e.g.
-#                         https://asset.example.com/monitor on project
-#                         infinia-assets) — or its own project/domain by
-#                         setting deploy.conf accordingly on that host.
+#                         in whichever layout its ASSETS_BASE_URL names: a
+#                         bare domain (https://status-assets.example.com)
+#                         publishes the dist at the ROOT of the monitor's OWN
+#                         Pages project/domain; a domain with a path
+#                         (https://asset.example.com/monitor) stages it as the
+#                         /monitor subtree of the STORE's shared project and
+#                         mirrors the store's half in (mirror_shared_half).
 #
 # The host is auto-detected (store host / monitor host by its compose project;
 # anything else builds in a throwaway node container). Full run per target,
@@ -150,7 +152,8 @@ if [[ -z $PROJECT ]]; then
   fi
 fi
 NODE_IMAGE=${NODE_IMAGE:-node:22-alpine}
-# Index location inside the publish dir ('monitor/index.html' for staged publishes).
+# Index location inside the publish dir ("monitor/index.html" for shared-subtree
+# monitor publishes; root layouts keep the default).
 INDEX_HTML=index.html
 
 # Target-host last resort: the running deployment's .env already names the
@@ -327,6 +330,19 @@ BASE_URL=${BASE_URL%/}   # stored/probed without the trailing slash
 [[ $BASE_URL == http* ]] || die "--base-url must be an absolute https:// URL"
 command -v docker >/dev/null || die "docker is required"
 
+# Monitor publish layout, from the base URL's shape: a bare domain means the
+# monitor's OWN Pages project published at its root (dedicated layout — no
+# subtree staging, no mirror); a domain with a /monitor path means the store's
+# shared project with the monitor staged under that subtree (shared layout).
+MON_SUBTREE=monitor
+SHARED_MONITOR=0
+if [[ $TARGET == monitor ]]; then
+  case "${BASE_URL#https://*}" in
+    */$MON_SUBTREE) SHARED_MONITOR=1 ;;
+    */?*) die "unsupported path in --base-url $BASE_URL — shared publishes stage only under /$MON_SUBTREE; use a bare domain for the monitor's own project" ;;
+  esac
+fi
+
 # ---- pick the mode ----------------------------------------------------------
 if [[ $MODE == auto ]]; then
   if [[ $TARGET == monitor ]]; then
@@ -387,46 +403,124 @@ write_shared_headers() { # write_shared_headers <stage-dir>
 HEADERS
 }
 
-# A Pages deployment REPLACES the whole project tree, but the shared project
+# A Pages deployment REPLACES the whole project tree, but a shared project
 # carries both SPAs (store at the root, monitor under /monitor): publishing
 # one side's subtree alone drops the other side's hashed files from the
 # production domain (verified the hard way — a monitor-only publish 404'd the
 # store's bundle). So mirror the other half from the live domain into this
 # publish: the files are content-hashed and immutable, a verbatim copy is
-# exactly what that side's own publish uploaded. An unreachable other half
-# (first-time setup, dedicated-domain setups) skips with a warning.
+# exactly what that side's own publish uploaded.
+#
+# Pages' SPA fallback makes a MISSING half look like HTTP 200 HTML, so the
+# fetched shell is validated against that half's real asset URLs before
+# anything is copied. A masked or absent monitor half (it moved to its own
+# assets domain, or an older publish dropped it) downgrades to a warning and
+# the store still publishes; an absent store half is fatal, because a
+# monitor-only publish would drop the live store. Once a half is confirmed
+# live, a failure to copy any of its files aborts the publish (fail closed).
+# Dedicated-domain publishes never call this — there is no other half.
 mirror_shared_half() { # mirror_shared_half <stage-dir> <own-target: monitor|store>
-  local stage=$1 own=$2 domain other shell
+  local stage=$1 own=$2 domain other expect shell
   domain=${BASE_URL#https://}; domain=${domain%%/*}
   if [[ $own == monitor ]]; then
-    other="https://$domain"          # the store half lives at the root
+    other="https://$domain"                         # the store half lives at the root
+    expect="https://$domain/assets/"                # every real store shell references these
   else
-    other="https://$domain/monitor"  # the monitor half lives under /monitor
+    other="https://$domain/$MON_SUBTREE"            # the monitor half lives under the subtree
+    expect="https://$domain/$MON_SUBTREE/assets/"   # every real monitor shell references these
   fi
   if ! shell=$(curl -fsSL --max-time 30 "$other/" 2>/dev/null); then
-    warn "shared-domain mirror: the other half is not serving at $other/ —"
-    warn "publishing without it (run that side's own publish once, then re-run here)"
+    if [[ $own == monitor ]]; then
+      die "the store half is not serving at $other/ — a monitor-only publish would drop it
+  from the shared project. Run the store-side publish first (store host: scripts/deploy-assets.sh),
+  or bypass the mirror with --dist if you truly intend a monitor-only tree"
+    fi
+    warn "shared-domain mirror: the other half is not serving at $other/ — publishing without it"
+    warn "(first-time setup, or that side moved to its own assets domain)"
+    return 0
+  fi
+  if ! grep -qF "$expect" <<<"$shell"; then
+    if [[ $own == monitor ]]; then
+      die "no store SPA shell at $other/ (nothing references $expect — the Pages SPA fallback
+  is masking something). A monitor-only publish would drop the live store half; investigate
+  the domain before publishing, or bypass the mirror with --dist"
+    fi
+    warn "shared-domain mirror: no monitor SPA live at $other/ — the Pages SPA fallback answered."
+    warn "Publishing the store half only. Expected once the monitor serves from its own assets"
+    warn "domain; if it should live here, its half was dropped earlier — restore it with a"
+    warn "monitor-side publish against this same shared base URL"
     return 0
   fi
   log "shared-domain mirror: copying the other SPA's files from $other into this publish"
-  local url ref dest ctype
-  printf '%s\n' "$shell" | grep -oE "https://$domain/[A-Za-z0-9._/-]+" | sort -u | while read -r url; do
+  # Worklist of "<url> <fatal>" lines. Shell-referenced files are fatal on
+  # failure; files discovered one hop deeper are not — hashed SPAs lazy-load
+  # route chunks via RELATIVE imports ("./View-x.js") that never appear in the
+  # shell (the store splits into dozens), but a quoted string in minified code
+  # can look like a path without being one, so those only warn+skip on 404.
+  local work="" queued=$'\n' line url fatal ref dest ctype dir rel r2 copied=0 skipped=0 tally=""
+  # queued: every ref ever added to the worklist — each enters at most once,
+  # so the pop side needs no dedup check of its own.
+  while read -r url; do
     ref=${url#https://$domain}
     [[ $ref == /_headers ]] && continue
+    grep -qxF "$ref" <<<"$queued" && continue
+    queued+="$ref"$'\n'
+    work+="$url 1"$'\n'
+  done < <(printf '%s\n' "$shell" | grep -oE "https://$domain/[A-Za-z0-9._/-]+" | sort -u)
+  local guard=0
+  while [[ -n $work ]]; do
+    line=${work%%$'\n'*}
+    if [[ $work == *$'\n'* ]]; then work=${work#*$'\n'}; else work=""; fi
+    url=${line% *}; fatal=${line##* }
+    ref=${url#https://$domain}
     dest="$stage$ref"
     mkdir -p "$(dirname "$dest")"
+    guard=$((guard + 1)); [[ $guard -gt 1000 ]] && die "mirror: runaway worklist (>1000 files) at $url"
     if ! ctype=$(curl -fsSL --max-time 30 -o "$dest" -w '%{content_type}' "$url"); then
-      warn "mirror: could not fetch $url — continuing"
-      rm -f "$dest"
-      continue
+      if [[ $fatal == 1 ]]; then
+        die "mirror: could not fetch $url — aborting: publishing now would drop the live half at $other"
+      fi
+      skipped=$((skipped + 1)); warn "mirror: $url not fetchable — skipped (not a real dependency?)"
+      rm -f "$dest"; continue
     fi
-    # Guard against an HTML fallback page (200 text/html) poisoning the tree.
+    if [[ $fatal == 1 ]]; then
+      # Strict per-extension guards for shell-referenced files.
+      case "$ref" in
+        *.js)  [[ $ctype == *javascript* ]] || die "mirror: $url served '$ctype' — aborting: publishing now would drop the live half at $other" ;;
+        *.css) [[ $ctype == *css* ]]        || die "mirror: $url served '$ctype' — aborting: publishing now would drop the live half at $other" ;;
+        *.svg) [[ $ctype == *svg* || $ctype == *octet-stream* ]] || die "mirror: $url served '$ctype' — aborting: publishing now would drop the live half at $other" ;;
+      esac
+    elif [[ $ctype == text/html* ]]; then
+      # Discovered files only need the fallback-page guard.
+      skipped=$((skipped + 1)); warn "mirror: $url served '$ctype' — skipped"
+      rm -f "$dest"; continue
+    fi
+    copied=$((copied + 1))
     case "$ref" in
-      *.js)   [[ $ctype == *javascript* ]] || { warn "mirror: $url served '$ctype' — skipped"; rm -f "$dest"; } ;;
-      *.css)  [[ $ctype == *css* ]]        || { warn "mirror: $url served '$ctype' — skipped"; rm -f "$dest"; } ;;
-      *.svg)  [[ $ctype == *svg* || $ctype == *octet-stream* ]] || { warn "mirror: $url served '$ctype' — skipped"; rm -f "$dest"; } ;;
+      *.js|*.css)
+        # Chase what this bundle itself loads. Vite emits lazy chunks both as
+        # relative imports ("./View-x.js") and as __vite__mapDeps entries
+        # ("assets/View-x.js" — where per-route CSS files only ever appear);
+        # CSS url(./…) assets resolve like relative imports.
+        dir=$(dirname "$ref")
+        while read -r rel; do
+          case $rel in
+            '"./'*)      rel=${rel#'"./'};  rel=${rel%'"'}; r2="$dir/$rel" ;;
+            '"assets/'*) rel=${rel#'"'};    rel=${rel%'"'}; r2="/$rel" ;;
+            'url(./'*)   rel=${rel#'url(./'}; rel=${rel%')'}; r2="$dir/$rel" ;;
+            *) continue ;;
+          esac
+          [[ -n $rel ]] || continue
+          grep -qxF "$r2" <<<"$queued" && continue
+          queued+="$r2"$'\n'
+          work+="https://$domain$r2 0"$'\n'
+        done < <({ grep -oE '"(\./|assets/)[A-Za-z0-9._/-]+"' "$dest" || true
+                   grep -oE 'url\(\./[A-Za-z0-9._/?=-]+\)' "$dest" || true; } | sort -u)
+        ;;
     esac
   done
+  [[ $skipped -gt 0 ]] && tally=" ($skipped discovered ref(s) skipped)"
+  log "shared-domain mirror: copied $copied file(s) from $other$tally"
 }
 
 if [[ $MODE == image && $TARGET == monitor ]]; then
@@ -463,17 +557,25 @@ OVERRIDE
   docker create --name mon-extract-$$ "$IMG" >/dev/null
   trap 'docker rm -f mon-extract-$$ >/dev/null 2>&1 || true; cleanup' EXIT
   docker cp mon-extract-$$:/app/store-monitor.jar "$TMPDIST/web.jar"
-  docker rm mon-extract-$$ >/dev/null
-  # Shared-domain layout: the monitor SPA lives under /monitor on the same
-  # Pages project/domain as the store (ASSETS_BASE_URL=…/monitor), so stage
-  # the extracted dist as a subtree plus the shared root _headers.
-  mkdir -p "$TMPDIST/extract" "$TMPDIST/stage/monitor"
+  docker rm -f mon-extract-$$ >/dev/null
+  mkdir -p "$TMPDIST/extract"
   extract_jar_static "$TMPDIST/web.jar" "$TMPDIST/extract" && rm -f "$TMPDIST/web.jar"
-  mv "$TMPDIST"/extract/* "$TMPDIST/stage/monitor/"
-  write_shared_headers "$TMPDIST/stage"
-  mirror_shared_half "$TMPDIST/stage" monitor
-  DIST=$TMPDIST/stage
-  INDEX_HTML=monitor/index.html
+  if [[ $SHARED_MONITOR == 1 ]]; then
+    # Shared layout: the monitor SPA lives under /$MON_SUBTREE on the store's
+    # Pages project/domain — stage the dist as that subtree, add the shared
+    # root _headers, and mirror the store half in.
+    mkdir -p "$TMPDIST/stage/$MON_SUBTREE"
+    mv "$TMPDIST"/extract/* "$TMPDIST/stage/$MON_SUBTREE/"
+    write_shared_headers "$TMPDIST/stage"
+    mirror_shared_half "$TMPDIST/stage" monitor
+    DIST=$TMPDIST/stage
+    INDEX_HTML=$MON_SUBTREE/index.html
+  else
+    # Dedicated layout: the monitor's own project serves this dist at its
+    # root — publish as extracted. The Vite build's own _headers ships in the
+    # jar's static root; there is no other half to protect.
+    DIST=$TMPDIST/extract
+  fi
 elif [[ $MODE == image ]]; then
   # ---- store host: publish exactly what the next jar embeds ----------------
   log "store host: upserting ASSETS_BASE_URL=$BASE_URL in .env"
@@ -511,15 +613,18 @@ else
     -e NPM_CONFIG_REGISTRY -e COREPACK_NPM_REGISTRY \
     "$NODE_IMAGE" sh -c \
       "corepack enable && yarn install --immutable && yarn workspace $WORKSPACE build"
-  if [[ $TARGET == monitor ]]; then
-    # Same /monitor subtree staging as the image path (shared-domain layout).
+  if [[ $TARGET == monitor && $SHARED_MONITOR == 1 ]]; then
+    # Same shared-subtree staging as the image path.
     STAGE="$TMPDIST/stage"
-    mkdir -p "$STAGE/monitor"
-    cp -R "$PWD/$DISTDIR/." "$STAGE/monitor/"
+    mkdir -p "$STAGE/$MON_SUBTREE"
+    cp -R "$PWD/$DISTDIR/." "$STAGE/$MON_SUBTREE/"
     write_shared_headers "$STAGE"
     mirror_shared_half "$STAGE" monitor
     DIST=$STAGE
-    INDEX_HTML=monitor/index.html
+    INDEX_HTML=$MON_SUBTREE/index.html
+  elif [[ $TARGET == monitor ]]; then
+    # Dedicated layout: the dist publishes as-is at the project root.
+    DIST=$PWD/$DISTDIR
   else
     DIST=$PWD/$DISTDIR
     mirror_shared_half "$DIST" store
@@ -531,7 +636,7 @@ publish_dist "$DIST"
 
 # ---- domain: attach via API, then wait until it actually serves ------------
 DOMAIN=${BASE_URL#https://}; DOMAIN=${DOMAIN%%/*}
-if [[ $TARGET == monitor ]]; then ASSET_REL=monitor; else ASSET_REL=.; fi
+if [[ $TARGET == monitor && $SHARED_MONITOR == 1 ]]; then ASSET_REL=$MON_SUBTREE; else ASSET_REL=.; fi
 ENTRY=$(ls "$DIST/$ASSET_REL/assets" | grep -E '^index-[^/]+\.js$' | head -1)
 PROBE_URL="$BASE_URL/assets/$ENTRY"
 

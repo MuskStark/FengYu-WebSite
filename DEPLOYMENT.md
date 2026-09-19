@@ -224,30 +224,46 @@ every `scripts/upgrade.sh` re-publishes the new jar's SPA to Pages right
 after a successful deploy, so hashed files stay in sync on their own.
 
 **Monitor host** (split deployment): the same offload covers the monitor SPA,
-by default as a **/monitor subtree of the store's Pages project and domain**
-— e.g. the store at `https://asset.example.com/` and the monitor at
-`https://asset.example.com/monitor/`. One project, one domain; hashed
-filenames never collide and each publish carries a shared root `_headers`
-with CORS for both `/assets/*` and `/monitor/assets/*`. On the monitor host:
+in whichever layout that host's `ASSETS_BASE_URL` names — the shape of the URL
+picks it, and because the base is baked into the jar's shell at image-build
+time (Vite `base`), moving the monitor to a different assets origin always
+ends with a rebuild + `--switch`, never just a re-publish:
 
-```sh
-scripts/deploy-assets.sh --monitor --configure   # ASSETS_BASE_URL=https://asset.example.com/monitor
-                                                 # ASSETS_PAGES_PROJECT=infinia-assets (shared)
-scripts/deploy-assets.sh --monitor --all
-```
+- **Dedicated project/domain** — a bare domain, e.g.
+  `https://status-assets.example.com` on Pages project
+  `infinia-monitor-assets`. The dist publishes as-is at the project root;
+  nothing else lives there, so publishes can never disturb the store's half.
 
-(A dedicated project/domain per SPA remains possible — just configure
-different values in that host's `deploy.conf`.) Caveats: the CI-published
-GHCR monitor image builds without the asset origin (same-origin), so an
-offloaded monitor builds locally — the script writes the build override, and
-`upgrade.sh --monitor` bakes the origin into its build automatically and
-re-publishes after every successful deploy. A Pages deployment REPLACES the
-whole project tree, so `deploy-assets.sh` mirrors the other SPA's half from
-the live domain into every publish (the files are content-hashed and
-immutable — a verbatim copy of exactly what that side's own publish
-uploaded). If a publish ever warns that the other half is not reachable,
-re-run the opposite side's publish once to restore the complete tree, and
-don't prune old deployments of a shared project.
+  ```sh
+  scripts/deploy-assets.sh --monitor --configure   # ASSETS_BASE_URL=https://status-assets.example.com
+                                                   # ASSETS_PAGES_PROJECT=infinia-monitor-assets
+  scripts/deploy-assets.sh --monitor --all
+  ```
+
+- **Shared /monitor subtree** — a domain with a path, e.g.
+  `https://asset.example.com/monitor` on the store's `infinia-assets`
+  project. Each publish stages the monitor under `/monitor` with a shared
+  root `_headers` (CORS for both `/assets/*` and `/monitor/assets/*`) and
+  mirrors the store's half in — a Pages deployment REPLACES the whole
+  project tree, and the mirrored files are content-hashed and immutable, so
+  a verbatim copy is exactly what the store's own publish uploaded.
+
+Caveats: the CI-published GHCR monitor image builds without the asset origin
+(same-origin), so an offloaded monitor builds locally — the script writes the
+build override, and `upgrade.sh --monitor` bakes the origin into its build
+automatically and re-publishes after every successful deploy. The shared
+layout's mirror copies everything the other half actually loads — lazy-loaded
+route chunks (`import("./View-x.js")` and `__vite__mapDeps` entries, which the
+shell never references) are chased to closure, byte-identical to the live
+files. Pages' SPA fallback answers 200 HTML for a MISSING half, so the mirror
+validates the fetched shell against that half's real asset URLs first: an
+absent monitor half downgrades to a warning (the store still publishes — that
+is the steady state once the monitor has its own domain), while an absent or
+unrecognizable store half is fatal, as is any failure to copy a file of a
+confirmed-live half. If a publish ever refuses for one of those, run the
+opposite side's publish once and retry; don't prune old deployments of a
+shared project, and use `--dist` only knowingly — it publishes exactly one
+dist with no mirroring at all.
 
 The manual equivalent, step by step:
 

@@ -2,6 +2,36 @@
 
 ## Unreleased
 
+### fix(assets): dedicated-domain monitor publishes; fail-closed shared-tree mirror
+
+- `deploy-assets.sh --monitor` now actually supports the dedicated
+  Pages-project-per-SPA layout its docs promised: a bare-domain
+  `ASSETS_BASE_URL` (e.g. `https://status-assets.infinia.fyi`) publishes the
+  dist as-is at the project root — no `/monitor` subtree staging, no shared
+  `_headers`, no mirroring. Previously every monitor publish was forced into
+  the shared-subtree staging, so running the script against a dedicated
+  domain would have replaced its root layout with a broken `/monitor` tree
+  (the jar's shell references `/assets/*` at the root). The layout is picked
+  from the base URL's shape; a domain with any path other than `/monitor`
+  fails fast instead of guessing.
+- The shared-layout mirror can no longer be fooled by the Pages SPA fallback.
+  A missing half answers `200 text/html` (the root SPA's shell), which the
+  old code "mirrored" as if it were the real half — silently republishing
+  store-only trees; that is how `status.infinia.fyi` ended up loading its
+  bundle from an HTML fallback (blank page: the module MIME check rejects
+  it). The fetched shell is now validated against that half's real asset
+  URLs: an absent monitor half downgrades to a warning (the steady state
+  once the monitor has its own assets domain), an absent or unrecognizable
+  store half is fatal, and once a half is confirmed live, any failure to
+  copy one of its files aborts the publish instead of dropping the half.
+- Mirroring the store half now copies a COMPLETE half: hashed SPAs lazy-load
+  route chunks via `import("./View-x.js")` and `__vite__mapDeps` entries
+  (`"assets/…"` — where per-route CSS files only ever appear), none of which
+  the HTML shell references. The old shell-only mirror would have restored a
+  store half missing ~35 of its 36 JS files. Discovered refs are fetched
+  recursively to closure; refs that 404 (a quoted string in minified code
+  can look like a path without being one) only warn and skip.
+
 ### fix(deploy): first-boot upstream sync no longer rolls back every upgrade
 
 - The initial upstream catalog index ran as a synchronous
