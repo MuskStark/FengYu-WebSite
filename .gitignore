@@ -37,6 +37,8 @@ deploy.conf
 
 # Host-local monitor release image selection
 .monitor-release.yml
+docker-compose.monitor-build.override.yml
 
 # ZCode CLI local session state
 .zcode/
+__pycache__/

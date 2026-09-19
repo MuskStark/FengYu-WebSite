@@ -141,6 +141,13 @@ if [[ $MONITOR -eq 1 ]]; then
   IMAGE="infinia-monitor:$NEW_REF"
   docker build -f Dockerfile.monitor "${ASSETS_BUILD_ARG[@]}" \
     --label "org.opencontainers.image.revision=$NEW_REF" -t "$IMAGE" .
+  # Publish this exact image before exposing its HTML shell. A failed upload
+  # or domain verification leaves the old container serving and rolls back.
+  if [[ $ASSETS_URL_VALUE == https://* ]]; then
+    log "publishing and verifying the next monitor's assets before cutover"
+    ASSETS_BASE_URL="$ASSETS_URL_VALUE" DEPLOY_ASSETS_HOOK=1 DEPLOY_ASSETS_IMAGE="$IMAGE" \
+      scripts/deploy-assets.sh --monitor --from-image --wait-assets
+  fi
   printf 'services:\n  monitor:\n    image: "%s"\n' "$IMAGE" > "$OVERRIDE"
   docker compose -f "$COMPOSE_FILE" -f "$OVERRIDE" up -d --no-build --pull never --wait --wait-timeout 300
   CID=$(docker compose -f "$COMPOSE_FILE" -f "$OVERRIDE" ps -q monitor)
@@ -149,15 +156,6 @@ if [[ $MONITOR -eq 1 ]]; then
   trap - ERR
   log "monitor deployed and healthy: ${NEW_REF:0:12}"
 
-  # Asset offload sync, same contract as the store flow: publish the new
-  # jar's SPA so the fresh shell finds its hashed files on Pages.
-  if [[ $ASSETS_URL_VALUE == http* ]] && [[ -f deploy.conf ]]; then
-    log "asset offload active — publishing the new monitor SPA to Cloudflare Pages"
-    if ! DEPLOY_ASSETS_HOOK=1 scripts/deploy-assets.sh --monitor --from-image; then
-      warn "asset publish failed — the running shell references the assets domain;"
-      warn "retry manually: scripts/deploy-assets.sh --monitor --from-image"
-    fi
-  fi
   exit 0
 fi
 
@@ -237,8 +235,16 @@ wait_healthy() { # wait_healthy <service> <timeout-seconds>; 0 = healthy, 1 = no
 log "checkout ${OLD_REF:0:12} -> ${NEW_REF:0:12}"
 git checkout -f --detach "$NEW_REF" >/dev/null
 
-log "rebuilding and restarting (compose layer cache keeps unchanged builds fast)"
-docker compose "${PROFILES[@]}" up -d --build || rollback
+log "building the next images (the current containers keep serving)"
+ASSETS_URL_VALUE=$(grep -E '^ASSETS_BASE_URL=' .env | head -1 | cut -d= -f2- || true)
+ASSETS_BASE_URL="$ASSETS_URL_VALUE" docker compose "${PROFILES[@]}" build || rollback
+if [[ $ASSETS_URL_VALUE == https://* ]]; then
+  log "publishing and verifying the next store's assets before cutover"
+  ASSETS_BASE_URL="$ASSETS_URL_VALUE" DEPLOY_ASSETS_HOOK=1 DEPLOY_ASSETS_IMAGE=infinia-webservice \
+    scripts/deploy-assets.sh --from-image --wait-assets || rollback
+fi
+log "restarting with the verified images"
+docker compose "${PROFILES[@]}" up -d --no-build || rollback
 
 if ! wait_healthy store 900; then rollback; fi
 if [[ $WITH_MONITOR -eq 1 ]]; then
@@ -252,19 +258,6 @@ curl -fsS http://127.0.0.1:8080/actuator/health | grep -q '"UP"' \
 if [[ $WITH_MONITOR -eq 1 ]]; then
   curl -fsS http://127.0.0.1:8090/actuator/health >/dev/null \
     || warn "monitor health endpoint not reachable"
-fi
-
-# Asset offload sync: when the deployment serves hashed assets from Cloudflare
-# Pages (ASSETS_BASE_URL in .env) and the host carries its deploy.conf, the
-# new jar's files must reach Pages or the fresh shell references files that
-# are not there. Publish from this exact image — the store host stays the
-# single publishing source (no CI involved).
-if grep -q '^ASSETS_BASE_URL=https\?://' .env 2>/dev/null && [[ -f deploy.conf ]]; then
-  log "asset offload active — publishing the new SPA to Cloudflare Pages"
-  if ! DEPLOY_ASSETS_HOOK=1 scripts/deploy-assets.sh --from-image; then
-    warn "asset publish failed — the running shell references the assets domain;"
-    warn "retry manually: scripts/deploy-assets.sh --from-image"
-  fi
 fi
 
 # Drop the dangling layers the rebuild left behind so repeated deploys don't

@@ -51,6 +51,11 @@ jobs:
         run: |
           yarn workspace @infinia/store-web gen:api
           git diff --exit-code -- store-web/src/api/schema.d.ts
+      - name: Pages deployment script regressions
+        run: |
+          bash -n scripts/deploy-assets.sh scripts/upgrade.sh
+          node --test scripts/tests/pages-assets.test.mjs
+          python3 -B -m unittest discover -s scripts/tests -p 'test_*.py'
       - name: Unit tests (store web)
         run: yarn web:test
       - name: Unit tests (monitor web)

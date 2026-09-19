@@ -2,35 +2,39 @@
 
 ## Unreleased
 
-### fix(assets): dedicated-domain monitor publishes; fail-closed shared-tree mirror
+### fix(assets): manifest-based retention, layout-aware monitor publishes
 
-- `deploy-assets.sh --monitor` now actually supports the dedicated
-  Pages-project-per-SPA layout its docs promised: a bare-domain
-  `ASSETS_BASE_URL` (e.g. `https://status-assets.infinia.fyi`) publishes the
-  dist as-is at the project root — no `/monitor` subtree staging, no shared
-  `_headers`, no mirroring. Previously every monitor publish was forced into
-  the shared-subtree staging, so running the script against a dedicated
-  domain would have replaced its root layout with a broken `/monitor` tree
-  (the jar's shell references `/assets/*` at the root). The layout is picked
-  from the base URL's shape; a domain with any path other than `/monitor`
-  fails fast instead of guessing.
-- The shared-layout mirror can no longer be fooled by the Pages SPA fallback.
-  A missing half answers `200 text/html` (the root SPA's shell), which the
-  old code "mirrored" as if it were the real half — silently republishing
-  store-only trees; that is how `status.infinia.fyi` ended up loading its
-  bundle from an HTML fallback (blank page: the module MIME check rejects
-  it). The fetched shell is now validated against that half's real asset
-  URLs: an absent monitor half downgrades to a warning (the steady state
-  once the monitor has its own assets domain), an absent or unrecognizable
-  store half is fatal, and once a half is confirmed live, any failure to
-  copy one of its files aborts the publish instead of dropping the half.
-- Mirroring the store half now copies a COMPLETE half: hashed SPAs lazy-load
-  route chunks via `import("./View-x.js")` and `__vite__mapDeps` entries
-  (`"assets/…"` — where per-route CSS files only ever appear), none of which
-  the HTML shell references. The old shell-only mirror would have restored a
-  store half missing ~35 of its 36 JS files. Discovered refs are fetched
-  recursively to closure; refs that 404 (a quoted string in minified code
-  can look like a path without being one) only warn and skip.
+- Every publish now ships `infinia-assets-manifest.json` (all files +
+  SHA-256; original HTML shells embedded because Cloudflare injects scripts
+  into HTML responses), and the next run restores from it whatever the new
+  build does not carry — both shells, lazy route chunks, fonts, older hashed
+  bundles. A missing or corrupt manifest, a failed download, or a checksum
+  mismatch stops publication instead of dropping files. Pre-manifest
+  deployments migrate with `--previous-dist <complete previous Pages tree>`;
+  `--fresh-project` covers only genuinely empty projects. This replaces the
+  live-domain mirroring: it kept only shell-referenced files, so a restored
+  half could miss ~35 of the store's 36 JS files, and the Pages SPA fallback
+  (200 HTML for a missing half) could masquerade as the half itself.
+- `deploy-assets.sh` now derives the publish layout from the base URL's
+  shape: a bare domain publishes that SPA's dist at its project root
+  (dedicated monitor origin, e.g. `https://status-assets.infinia.fyi` on
+  `infinia-monitor-assets`), `/monitor` stages the shared subtree, and any
+  other shape fails fast. Previously every monitor publish was forced into
+  `/monitor` staging, which would have broken a dedicated root layout (the
+  jar's shell references `/assets/*` at the root). The base is baked into
+  the jar at image-build time (Vite `base`), so moving an SPA to a different
+  assets origin always ends with a rebuild + `--switch` — the mismatched
+  base now aborts the publish outright. That half-done cutover is why
+  `status.infinia.fyi` served a shell pointing at the retired
+  `assets.infinia.fyi/monitor` and rendered nothing.
+- Verification is byte-level: the domain probe compares actual bytes
+  (`cmp`), so a 200-HTML SPA fallback can no longer pass for a served
+  bundle, and `upgrade.sh` publishes and verifies the exact SPA before
+  switching containers — a failed publish or verification rolls back. The
+  published image is pinned in `.monitor-release.yml`. A containerized
+  wrangler leaves a root-owned `<dist>/.wrangler` that no longer aborts the
+  script after a successful publish; it is removed through a container when
+  the host `rm` cannot.
 
 ### fix(deploy): first-boot upstream sync no longer rolls back every upgrade
 

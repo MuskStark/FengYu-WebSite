@@ -198,15 +198,14 @@ having to fetch every static file from the origin over a flaky
 edge→origin link — made permanent there by a zone cache rule that returns
 `cf-cache-status: BYPASS` for static files. Offloading the SPA's hashed
 assets to a Cloudflare Pages project removes them from that path entirely:
-Pages serves `/assets/*` with a year of immutable caching, worldwide, and
-never contacts the store host. The HTML shell and the API keep coming from
+Pages serves `/assets/*` worldwide without contacting the store host. The HTML shell and the API keep coming from
 the origin exactly as before, and the whole mechanism is opt-in — with
 `ASSETS_BASE_URL` unset, nothing changes for any deployment.
 
 Setup (one-time, one command):
 
 ```sh
-scripts/deploy-assets.sh --all
+scripts/deploy-assets.sh --all --fresh-project   # only for a NEW, empty Pages project
 ```
 
 `--all` does everything in order: interactive configuration when values are
@@ -218,10 +217,12 @@ the domain actually serves the files, and switches the store container after
 its health check. On a non-store host it does everything except the switch
 and prints the final command to run on the server.
 
-No CI involvement: the store host is the single publishing source. Once the
-offload is active (`ASSETS_BASE_URL` in `.env` + `deploy.conf` present),
-every `scripts/upgrade.sh` re-publishes the new jar's SPA to Pages right
-after a successful deploy, so hashed files stay in sync on their own.
+Once `ASSETS_BASE_URL` is active in `.env`, `scripts/upgrade.sh` builds the
+next image, publishes its exact embedded SPA, and verifies the entry bundle's
+bytes at the assets domain **before switching containers**. Publish or
+verification failures trigger rollback. Cloudflare credentials can come from
+the environment or `deploy.conf`; missing credentials fail the upgrade rather
+than silently leave a new shell pointing at missing assets.
 
 **Monitor host** (split deployment): the same offload covers the monitor SPA,
 in whichever layout that host's `ASSETS_BASE_URL` names — the shape of the URL
@@ -243,27 +244,61 @@ ends with a rebuild + `--switch`, never just a re-publish:
 - **Shared /monitor subtree** — a domain with a path, e.g.
   `https://asset.example.com/monitor` on the store's `infinia-assets`
   project. Each publish stages the monitor under `/monitor` with a shared
-  root `_headers` (CORS for both `/assets/*` and `/monitor/assets/*`) and
-  mirrors the store's half in — a Pages deployment REPLACES the whole
-  project tree, and the mirrored files are content-hashed and immutable, so
-  a verbatim copy is exactly what the store's own publish uploaded.
+  root `_headers` (CORS for both `/assets/*` and `/monitor/assets/*`); the
+  other half of the tree survives through the manifest retention below.
 
-Caveats: the CI-published GHCR monitor image builds without the asset origin
-(same-origin), so an offloaded monitor builds locally — the script writes the
-build override, and `upgrade.sh --monitor` bakes the origin into its build
-automatically and re-publishes after every successful deploy. The shared
-layout's mirror copies everything the other half actually loads — lazy-loaded
-route chunks (`import("./View-x.js")` and `__vite__mapDeps` entries, which the
-shell never references) are chased to closure, byte-identical to the live
-files. Pages' SPA fallback answers 200 HTML for a MISSING half, so the mirror
-validates the fetched shell against that half's real asset URLs first: an
-absent monitor half downgrades to a warning (the store still publishes — that
-is the steady state once the monitor has its own domain), while an absent or
-unrecognizable store half is fatal, as is any failure to copy a file of a
-confirmed-live half. If a publish ever refuses for one of those, run the
-opposite side's publish once and retry; don't prune old deployments of a
-shared project, and use `--dist` only knowingly — it publishes exactly one
-dist with no mirroring at all.
+  ```sh
+  scripts/deploy-assets.sh --monitor --configure   # ASSETS_BASE_URL=https://asset.example.com/monitor
+                                                   # ASSETS_PAGES_PROJECT=infinia-assets (shared)
+  scripts/deploy-assets.sh --monitor --all
+  ```
+
+`--project` or `ASSETS_PAGES_PROJECT` overrides the layout's default project.
+The CI-published GHCR monitor image builds without the asset origin
+(same-origin), so an offloaded monitor builds locally. The script records the
+published image in `.monitor-release.yml` for cutover; `upgrade.sh --monitor`
+likewise publishes and byte-verifies the next image's SPA before switching.
+
+**Retaining files and migrating existing deployments**
+
+Pages replaces the entire production tree on each publish. Every full run now
+ships `infinia-assets-manifest.json`, listing all static files and SHA-256
+checksums. Original HTML shells are embedded in the manifest because Cloudflare
+may inject scripts into HTML responses. The next run downloads the previous manifest and retains its files,
+including both HTML shells, lazy JavaScript chunks, fonts, and older hashed
+bundles. Current build files take precedence. A missing manifest, failed
+download, or checksum mismatch stops publication rather than dropping files.
+Serialize publishes from the two hosts: Pages does not merge concurrent uploads.
+
+An existing deployment created by the old script has no manifest. For its
+**first migration**, supply a local copy of the **complete previous Pages tree**,
+with the store at the root and monitor under `monitor/` if sharing a project:
+
+```sh
+scripts/deploy-assets.sh --all --previous-dist /path/to/complete-previous-pages-tree
+# On the monitor host instead:
+scripts/deploy-assets.sh --monitor --all --previous-dist /path/to/complete-previous-pages-tree
+```
+
+Use saved deployment output, or extract the static directories from the exact
+previous store and monitor JARs and combine them in that layout. Include older
+bundles you still need for rollback. Downloading just HTML and its entry script
+is insufficient: it omits lazy imports. If the old script already removed
+files, recover them from saved builds; the live domain cannot restore them.
+After the first migration, omit `--previous-dist`. Use `--fresh-project` only
+for an empty project; it intentionally skips retention. When adding a monitor
+to an existing shared project, **do not** use `--fresh-project`.
+
+`--dist DIR` remains a publish-only operation for a **complete project tree**;
+it generates a manifest but does not merge remote files or infer `/monitor`.
+Do not pass only one SPA's dist when replacing a shared project. Full builds
+use a separate staging directory so the other SPA's files never contaminate
+`store-web/dist` or `monitor-web/dist`.
+
+Node is used for manifests (locally, or through the configured Node Docker
+image). Custom domain attachment uses the [Pages Domains API](https://developers.cloudflare.com/api/resources/pages/subresources/projects/subresources/domains/); verify the domain's
+CNAME/DNS record in Cloudflare if provisioning does not complete. A 200 HTML SPA
+fallback is not a successful bundle probe; `--wait-assets` verifies actual bytes.
 
 The manual equivalent, step by step:
 
@@ -316,8 +351,10 @@ The manual equivalent, step by step:
    build + `up -d`) — the script verifies the assets domain answers before
    that final switch: the shell references the domain from then on.
 
-Publishes are additive — hashed files accumulate, so a rollback to an older
-image keeps finding its files. Billing: Pages serves static assets with
+Full publishes retain hashed files listed in the previous manifest, so a
+rollback keeps finding those bundles. Retention starts with the complete tree
+provided during migration; previously deleted files are not recoverable from
+Pages automatically. Monitor the growing tree against Pages file limits. Billing: Pages serves static assets with
 unlimited requests and bandwidth on the free plan; the paid items to avoid
 are unrelated (Argo, Workers paid).
 

@@ -7,13 +7,11 @@
 #   store (default)     — store-web SPA, assets domain e.g. assets.example.com,
 #                         Pages project infinia-assets
 #   monitor (--monitor) — monitor-web SPA (split deployment's monitor host),
-#                         in whichever layout its ASSETS_BASE_URL names: a
-#                         bare domain (https://status-assets.example.com)
-#                         publishes the dist at the ROOT of the monitor's OWN
-#                         Pages project/domain; a domain with a path
-#                         (https://asset.example.com/monitor) stages it as the
-#                         /monitor subtree of the STORE's shared project and
-#                         mirrors the store's half in (mirror_shared_half).
+#                         staged under the /monitor subtree of the SAME Pages
+#                         project/domain as the store by default (e.g.
+#                         https://asset.example.com/monitor on project
+#                         infinia-assets) — or its own project/domain by
+#                         setting deploy.conf accordingly on that host.
 #
 # The host is auto-detected (store host / monitor host by its compose project;
 # anything else builds in a throwaway node container). Full run per target,
@@ -53,21 +51,25 @@
 #                      auto-detected on a monitor-only host)
 #   --base-url URL     assets origin (or ASSETS_BASE_URL env / deploy.conf /
 #                      the existing .env on the target host)
-#   --dist DIR         publish this already-built dist and exit (no build,
-#                      no .env changes, no --switch)
+#   --dist DIR         publish a COMPLETE Pages tree and exit (no build,
+#                      no remote retention, no .env changes, no --switch)
 #   --project NAME     Pages project (default infinia-assets, or
-#                      infinia-monitor-assets with --monitor)
+#                      infinia-monitor-assets for a dedicated monitor origin)
 #   --switch           after publishing, recreate the target's container with
 #                      the new image — only once the domain serves the files
+#   --wait-assets      verify the domain serves the exact bundle before exiting
 #   --configure        run the interactive questionnaire, save deploy.conf, exit
 #   --from-image       force the host path (extract from built image)
 #   --from-build       force the container-build path (any host)
 #   --keep-dir         keep the temporary publish directory (debugging)
+#   --fresh-project    first publish to an empty project; skip remote retention
+#   --previous-dist DIR complete prior Pages tree for migration (before manifests)
 #
 # Idempotent: re-running rebuilds (layer-cached), re-extracts and re-publishes
-# additively — hashed files accumulate, so older shells keep resolving.
-# upgrade.sh re-publishes automatically after every successful deploy while
-# the offload is active (ASSETS_BASE_URL in .env + deploy.conf present).
+# with a file manifest to retain previously published hashed assets.
+# upgrade.sh publishes and verifies assets before switching containers whenever
+# ASSETS_BASE_URL is active (.env); credentials may come from env or deploy.conf.
+# Serialize publishes from different hosts that share the same Pages project.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -81,7 +83,10 @@ MODE=auto
 TARGET=auto
 DIST_ARG=""
 SWITCH=0
+WAIT_ASSETS=0
 KEEP_DIR=0
+FRESH_PROJECT=0
+PREVIOUS_DIST=""
 CONFIGURE=0
 ALL=0
 
@@ -91,16 +96,20 @@ while [[ $# -gt 0 ]]; do
     --dist)       DIST_ARG=${2:?}; shift 2 ;;
     --project)    PROJECT=${2:?}; shift 2 ;;
     --switch)     SWITCH=1; shift ;;
+    --wait-assets) WAIT_ASSETS=1; shift ;;
     --all)        ALL=1; SWITCH=1; shift ;;
     --monitor)    TARGET=monitor; shift ;;
     --configure)  CONFIGURE=1; shift ;;
     --from-image) MODE=image; shift ;;
     --from-build) MODE=build; shift ;;
     --keep-dir)   KEEP_DIR=1; shift ;;
+    --fresh-project) FRESH_PROJECT=1; shift ;;
+    --previous-dist) PREVIOUS_DIST=${2:?}; shift 2 ;;
     -h|--help)    awk 'NR==1{next} /^set -e/{exit} {sub(/^# ?/, ""); print}' "$0"; exit 0 ;;
     *)            die "unknown option: $1 (see --help)" ;;
   esac
 done
+[[ $FRESH_PROJECT -eq 0 || -z $PREVIOUS_DIST ]] || die "choose --fresh-project or --previous-dist, not both"
 
 # ---------------------------------------------------- configuration ---------
 CONFIG_FILE=deploy.conf
@@ -125,8 +134,8 @@ load_config
 STORE_HOST=0
 MON_HOST=0
 if command -v docker >/dev/null 2>&1 && [[ -f .env ]]; then
-  docker compose --profile app config --services 2>/dev/null | grep -qx store && STORE_HOST=1
-  docker compose -f docker-compose.monitor.yml config --services 2>/dev/null | grep -qx monitor && MON_HOST=1
+  [[ -n $(docker compose --profile app ps -q store 2>/dev/null || true) ]] && STORE_HOST=1
+  [[ -n $(docker compose -f docker-compose.monitor.yml ps -q monitor 2>/dev/null || true) ]] && MON_HOST=1
 fi
 if [[ $TARGET == auto ]]; then
   TARGET=store
@@ -137,23 +146,30 @@ if [[ $TARGET == auto ]]; then
 fi
 MON_BASE=docker-compose.monitor.yml
 MON_BUILD_OV=docker-compose.monitor-build.override.yml
-if [[ $TARGET == monitor && $MON_HOST -eq 1 ]]; then
+if [[ $TARGET == monitor ]]; then
   MON_COMPOSE=(-f "$MON_BASE")
   [[ -f .monitor-release.yml ]] && MON_COMPOSE+=(-f .monitor-release.yml)
 fi
 
 # flag > environment > deploy.conf > built-in default
 BASE_URL=${BASE_URL:-${ASSETS_BASE_URL:-}}
+PROJECT_DEFAULTED=0
 if [[ -z $PROJECT ]]; then
-  if [[ $TARGET == monitor ]]; then
-    PROJECT=${ASSETS_PAGES_PROJECT:-infinia-monitor-assets}
-  else
-    PROJECT=${ASSETS_PAGES_PROJECT:-infinia-assets}
-  fi
+  PROJECT=${ASSETS_PAGES_PROJECT:-}
+  [[ -n $PROJECT ]] || PROJECT_DEFAULTED=1
 fi
+resolve_project() {
+  if [[ $PROJECT_DEFAULTED -eq 1 ]]; then
+    if [[ $TARGET == monitor && -n $BASE_URL && ${BASE_URL%/} != */monitor ]]; then
+      PROJECT=infinia-monitor-assets
+    else
+      PROJECT=infinia-assets
+    fi
+  fi
+}
+resolve_project
 NODE_IMAGE=${NODE_IMAGE:-node:22-alpine}
-# Index location inside the publish dir ("monitor/index.html" for shared-subtree
-# monitor publishes; root layouts keep the default).
+# Index location inside the publish dir ('monitor/index.html' for staged publishes).
 INDEX_HTML=index.html
 
 # Target-host last resort: the running deployment's .env already names the
@@ -205,10 +221,10 @@ configure_assets() { # configure_assets <need-base-url 0|1> — fill + optionall
   # Shared-domain style by default: one project/domain, monitor under /monitor.
   if [[ $TARGET == monitor ]]; then def_sub=asset.example.com/monitor; else def_sub=asset.example.com; fi
   log "configuration — missing values (answers can be saved to $CONFIG_FILE)"
-  if [[ $need_base -eq 1 && -z ${ASSETS_BASE_URL:-} ]]; then
+  if [[ $need_base -eq 1 && -z $BASE_URL ]]; then
     while :; do
-      ask "Assets origin URL (absolute https://, e.g. https://$def_sub.example.com)" "https://$def_sub.example.com"
-      if [[ $REPLY == https://* ]]; then export ASSETS_BASE_URL=$REPLY; break; fi
+      ask "Assets origin URL (absolute https://, e.g. https://$def_sub)" "https://$def_sub"
+      if [[ $REPLY == https://* ]]; then BASE_URL=$REPLY; export ASSETS_BASE_URL=$REPLY; break; fi
       warn "must start with https://"
     done
   fi
@@ -222,9 +238,10 @@ configure_assets() { # configure_assets <need-base-url 0|1> — fill + optionall
     [[ -n $REPLY ]] || die "API token is required"
     export CLOUDFLARE_API_TOKEN=$REPLY
   fi
+  resolve_project
   ask "Save these settings to $CONFIG_FILE for future runs" "Y"
   if [[ $REPLY == [Yy]* ]]; then
-    upsert_conf ASSETS_BASE_URL "${ASSETS_BASE_URL:-}"
+    upsert_conf ASSETS_BASE_URL "$BASE_URL"
     upsert_conf ASSETS_PAGES_PROJECT "$PROJECT"
     upsert_conf CLOUDFLARE_ACCOUNT_ID "$CLOUDFLARE_ACCOUNT_ID"
     upsert_conf CLOUDFLARE_API_TOKEN "$CLOUDFLARE_API_TOKEN"
@@ -243,8 +260,8 @@ NEED_BASE_URL=1
 MISSING=()
 [[ -z ${CLOUDFLARE_API_TOKEN:-} ]] && MISSING+=('CLOUDFLARE_API_TOKEN')
 [[ -z ${CLOUDFLARE_ACCOUNT_ID:-} ]] && MISSING+=('CLOUDFLARE_ACCOUNT_ID')
-[[ $NEED_BASE_URL -eq 1 && -z ${ASSETS_BASE_URL:-} ]] && MISSING+=('ASSETS_BASE_URL')
-if [[ ${#MISSING[@]} -gt 0 ]]; then
+[[ $NEED_BASE_URL -eq 1 && -z $BASE_URL ]] && MISSING+=('ASSETS_BASE_URL')
+if [[ ${#MISSING[@]} -gt 0 || $CONFIGURE -eq 1 ]]; then
   if [[ $INTERACTIVE -eq 1 || $CONFIGURE -eq 1 ]]; then
     configure_assets "$NEED_BASE_URL"
     BASE_URL=${BASE_URL:-${ASSETS_BASE_URL:-}}
@@ -258,6 +275,8 @@ if [[ $CONFIGURE -eq 1 ]]; then
   log "configuration complete — rerun without --configure to publish"
   exit 0
 fi
+resolve_project
+[[ $PROJECT =~ ^[a-z0-9][a-z0-9-]*[a-z0-9]$ || $PROJECT =~ ^[a-z0-9]$ ]] || die "invalid Pages project name"
 export PAGES_INIT=${PAGES_INIT:-1} ASSETS_PAGES_PROJECT=$PROJECT
 
 # wrangler without a host Node toolchain: prefer local npx, else run it in a
@@ -287,7 +306,10 @@ wrangler_deploy() { # wrangler_deploy <dist-abs> — publish the directory
       "$NODE_IMAGE" npx --yes wrangler@4 pages deploy \
       --project-name="$PROJECT" --branch=main --commit-dirty=true /dist
   fi
-  rm -rf "$dist/.wrangler"
+  # A containerized wrangler leaves .wrangler root-owned; without the
+  # fallback set -e aborts the script AFTER a successful publish.
+  rm -rf "$dist/.wrangler" 2>/dev/null ||
+    docker run --rm -v "$dist:/dist" "$NODE_IMAGE" sh -c 'rm -rf /dist/.wrangler'
 }
 
 # Publish a built dist (dist layout at its root) to the Pages project.
@@ -306,8 +328,13 @@ publish_dist() { # publish_dist <dist-dir> — index per $INDEX_HTML
 
   if [[ ${PAGES_INIT:-} == 1 ]]; then
     log "creating Pages project $PROJECT (production branch main) if absent"
-    # "already exists" is success for the idempotent one-time path.
-    wrangler_create || log "project create reported an error (usually: already exists) — continuing"
+    local create_output
+    if ! create_output=$(wrangler_create 2>&1); then
+      if ! printf '%s' "$create_output" | grep -qi 'already exists'; then
+        printf '%s\n' "$create_output" >&2
+        die "Pages project creation failed"
+      fi
+    fi
   fi
 
   log "publishing $dist_abs to Pages project $PROJECT (branch main)"
@@ -317,7 +344,19 @@ publish_dist() { # publish_dist <dist-dir> — index per $INDEX_HTML
 # ---- publish-only mode: --dist <dir> ----------------------------------------
 if [[ -n $DIST_ARG ]]; then
   [[ -z $BASE_URL ]] || warn "--base-url ignored in --dist mode (dist is already built)"
-  [[ $SWITCH -eq 0 ]] || die "--switch/--all do not combine with --dist"
+  [[ $FRESH_PROJECT -eq 0 && -z $PREVIOUS_DIST ]] || die "--dist already supplies the complete Pages tree; do not combine it with retention options"
+  [[ $SWITCH -eq 0 && $WAIT_ASSETS -eq 0 ]] || die "--switch/--all/--wait-assets do not combine with --dist"
+  # --dist is a COMPLETE project snapshot, so enumerate its full tree without
+  # inferring a target prefix or trying to merge an unrelated origin.
+  DIST_ARG=$(cd "$DIST_ARG" && pwd)
+  if command -v node >/dev/null; then
+    node scripts/pages-assets.mjs "$DIST_ARG" "" 1
+  else
+    command -v docker >/dev/null || die "manifest generation needs node or docker"
+    docker run --rm -v "$PWD/scripts:/scripts:ro" -v "$DIST_ARG:/dist" \
+      "$NODE_IMAGE" node /scripts/pages-assets.mjs /dist "" 1
+  fi
+  [[ -f "$DIST_ARG/index.html" ]] || INDEX_HTML=monitor/index.html
   publish_dist "$DIST_ARG"
   log "done. One-time wiring if not yet done: bind the custom domain"
   log "for $PROJECT in the Pages project settings."
@@ -327,21 +366,13 @@ fi
 # ---- full mode: resolve inputs ----------------------------------------------
 BASE_URL=${BASE_URL%/}   # stored/probed without the trailing slash
 [[ -n $BASE_URL ]] || die "--base-url (or ASSETS_BASE_URL) is required, e.g. --base-url https://assets.infinia.fyi"
-[[ $BASE_URL == http* ]] || die "--base-url must be an absolute https:// URL"
+[[ $BASE_URL =~ ^https://[A-Za-z0-9.-]+(/monitor)?$ ]] || die "--base-url must be https://HOST (dedicated) or https://HOST/monitor (shared monitor)"
+[[ $TARGET == monitor || $BASE_URL != */monitor ]] || die "the store assets must use the domain root"
+ASSET_REL=.
+[[ $BASE_URL != */monitor ]] || ASSET_REL=monitor
+# Export the resolved value: compose shell variables override .env.
+export ASSETS_BASE_URL=$BASE_URL
 command -v docker >/dev/null || die "docker is required"
-
-# Monitor publish layout, from the base URL's shape: a bare domain means the
-# monitor's OWN Pages project published at its root (dedicated layout — no
-# subtree staging, no mirror); a domain with a /monitor path means the store's
-# shared project with the monitor staged under that subtree (shared layout).
-MON_SUBTREE=monitor
-SHARED_MONITOR=0
-if [[ $TARGET == monitor ]]; then
-  case "${BASE_URL#https://*}" in
-    */$MON_SUBTREE) SHARED_MONITOR=1 ;;
-    */?*) die "unsupported path in --base-url $BASE_URL — shared publishes stage only under /$MON_SUBTREE; use a bare domain for the monitor's own project" ;;
-  esac
-fi
 
 # ---- pick the mode ----------------------------------------------------------
 if [[ $MODE == auto ]]; then
@@ -369,9 +400,9 @@ trap cleanup EXIT
 extract_jar_static() {
   local jar=$1 dest=$2
   if command -v unzip >/dev/null; then
-    (cd "$dest" && unzip -q "$jar" 'BOOT-INF/classes/static/*' \
-      && mv BOOT-INF/classes/static/* . \
-      && rmdir BOOT-INF/classes/static BOOT-INF/classes BOOT-INF 2>/dev/null || true)
+    unzip -q "$jar" 'BOOT-INF/classes/static/*' -d "$dest"
+    cp -R "$dest/BOOT-INF/classes/static/." "$dest/"
+    rm -rf "$dest/BOOT-INF"
   else
     python3 - "$jar" "$dest" <<'PY'
 import sys, zipfile, os, shutil
@@ -403,136 +434,37 @@ write_shared_headers() { # write_shared_headers <stage-dir>
 HEADERS
 }
 
-# A Pages deployment REPLACES the whole project tree, but a shared project
-# carries both SPAs (store at the root, monitor under /monitor): publishing
-# one side's subtree alone drops the other side's hashed files from the
-# production domain (verified the hard way — a monitor-only publish 404'd the
-# store's bundle). So mirror the other half from the live domain into this
-# publish: the files are content-hashed and immutable, a verbatim copy is
-# exactly what that side's own publish uploaded.
-#
-# Pages' SPA fallback makes a MISSING half look like HTTP 200 HTML, so the
-# fetched shell is validated against that half's real asset URLs before
-# anything is copied. A masked or absent monitor half (it moved to its own
-# assets domain, or an older publish dropped it) downgrades to a warning and
-# the store still publishes; an absent store half is fatal, because a
-# monitor-only publish would drop the live store. Once a half is confirmed
-# live, a failure to copy any of its files aborts the publish (fail closed).
-# Dedicated-domain publishes never call this — there is no other half.
-mirror_shared_half() { # mirror_shared_half <stage-dir> <own-target: monitor|store>
-  local stage=$1 own=$2 domain other expect shell
-  domain=${BASE_URL#https://}; domain=${domain%%/*}
-  if [[ $own == monitor ]]; then
-    other="https://$domain"                         # the store half lives at the root
-    expect="https://$domain/assets/"                # every real store shell references these
+# Build a complete publish tree, retaining both SPAs and previous hashed files.
+# Node is available locally or in the same container used by the build.
+retain_assets() { # retain_assets <stage-dir>
+  local stage=$1 origin=${BASE_URL%/monitor}
+  local previous_args=()
+  if [[ -n $PREVIOUS_DIST ]]; then
+    PREVIOUS_DIST=$(cd "$PREVIOUS_DIST" && pwd)
+    previous_args=(-v "$PREVIOUS_DIST:/previous:ro")
+  fi
+  if command -v node >/dev/null; then
+    node scripts/pages-assets.mjs "$stage" "$origin" "$FRESH_PROJECT" "$PREVIOUS_DIST"
   else
-    other="https://$domain/$MON_SUBTREE"            # the monitor half lives under the subtree
-    expect="https://$domain/$MON_SUBTREE/assets/"   # every real monitor shell references these
+    docker run --rm -v "$PWD/scripts:/scripts:ro" -v "$stage:/stage" "${previous_args[@]}" \
+      "$NODE_IMAGE" node /scripts/pages-assets.mjs /stage "$origin" "$FRESH_PROJECT" "${PREVIOUS_DIST:+/previous}"
   fi
-  if ! shell=$(curl -fsSL --max-time 30 "$other/" 2>/dev/null); then
-    if [[ $own == monitor ]]; then
-      die "the store half is not serving at $other/ — a monitor-only publish would drop it
-  from the shared project. Run the store-side publish first (store host: scripts/deploy-assets.sh),
-  or bypass the mirror with --dist if you truly intend a monitor-only tree"
-    fi
-    warn "shared-domain mirror: the other half is not serving at $other/ — publishing without it"
-    warn "(first-time setup, or that side moved to its own assets domain)"
-    return 0
-  fi
-  if ! grep -qF "$expect" <<<"$shell"; then
-    if [[ $own == monitor ]]; then
-      die "no store SPA shell at $other/ (nothing references $expect — the Pages SPA fallback
-  is masking something). A monitor-only publish would drop the live store half; investigate
-  the domain before publishing, or bypass the mirror with --dist"
-    fi
-    warn "shared-domain mirror: no monitor SPA live at $other/ — the Pages SPA fallback answered."
-    warn "Publishing the store half only. Expected once the monitor serves from its own assets"
-    warn "domain; if it should live here, its half was dropped earlier — restore it with a"
-    warn "monitor-side publish against this same shared base URL"
-    return 0
-  fi
-  log "shared-domain mirror: copying the other SPA's files from $other into this publish"
-  # Worklist of "<url> <fatal>" lines. Shell-referenced files are fatal on
-  # failure; files discovered one hop deeper are not — hashed SPAs lazy-load
-  # route chunks via RELATIVE imports ("./View-x.js") that never appear in the
-  # shell (the store splits into dozens), but a quoted string in minified code
-  # can look like a path without being one, so those only warn+skip on 404.
-  local work="" queued=$'\n' line url fatal ref dest ctype dir rel r2 copied=0 skipped=0 tally=""
-  # queued: every ref ever added to the worklist — each enters at most once,
-  # so the pop side needs no dedup check of its own.
-  while read -r url; do
-    ref=${url#https://$domain}
-    [[ $ref == /_headers ]] && continue
-    grep -qxF "$ref" <<<"$queued" && continue
-    queued+="$ref"$'\n'
-    work+="$url 1"$'\n'
-  done < <(printf '%s\n' "$shell" | grep -oE "https://$domain/[A-Za-z0-9._/-]+" | sort -u)
-  local guard=0
-  while [[ -n $work ]]; do
-    line=${work%%$'\n'*}
-    if [[ $work == *$'\n'* ]]; then work=${work#*$'\n'}; else work=""; fi
-    url=${line% *}; fatal=${line##* }
-    ref=${url#https://$domain}
-    dest="$stage$ref"
-    mkdir -p "$(dirname "$dest")"
-    guard=$((guard + 1)); [[ $guard -gt 1000 ]] && die "mirror: runaway worklist (>1000 files) at $url"
-    if ! ctype=$(curl -fsSL --max-time 30 -o "$dest" -w '%{content_type}' "$url"); then
-      if [[ $fatal == 1 ]]; then
-        die "mirror: could not fetch $url — aborting: publishing now would drop the live half at $other"
-      fi
-      skipped=$((skipped + 1)); warn "mirror: $url not fetchable — skipped (not a real dependency?)"
-      rm -f "$dest"; continue
-    fi
-    if [[ $fatal == 1 ]]; then
-      # Strict per-extension guards for shell-referenced files.
-      case "$ref" in
-        *.js)  [[ $ctype == *javascript* ]] || die "mirror: $url served '$ctype' — aborting: publishing now would drop the live half at $other" ;;
-        *.css) [[ $ctype == *css* ]]        || die "mirror: $url served '$ctype' — aborting: publishing now would drop the live half at $other" ;;
-        *.svg) [[ $ctype == *svg* || $ctype == *octet-stream* ]] || die "mirror: $url served '$ctype' — aborting: publishing now would drop the live half at $other" ;;
-      esac
-    elif [[ $ctype == text/html* ]]; then
-      # Discovered files only need the fallback-page guard.
-      skipped=$((skipped + 1)); warn "mirror: $url served '$ctype' — skipped"
-      rm -f "$dest"; continue
-    fi
-    copied=$((copied + 1))
-    case "$ref" in
-      *.js|*.css)
-        # Chase what this bundle itself loads. Vite emits lazy chunks both as
-        # relative imports ("./View-x.js") and as __vite__mapDeps entries
-        # ("assets/View-x.js" — where per-route CSS files only ever appear);
-        # CSS url(./…) assets resolve like relative imports.
-        dir=$(dirname "$ref")
-        while read -r rel; do
-          case $rel in
-            '"./'*)      rel=${rel#'"./'};  rel=${rel%'"'}; r2="$dir/$rel" ;;
-            '"assets/'*) rel=${rel#'"'};    rel=${rel%'"'}; r2="/$rel" ;;
-            'url(./'*)   rel=${rel#'url(./'}; rel=${rel%')'}; r2="$dir/$rel" ;;
-            *) continue ;;
-          esac
-          [[ -n $rel ]] || continue
-          grep -qxF "$r2" <<<"$queued" && continue
-          queued+="$r2"$'\n'
-          work+="https://$domain$r2 0"$'\n'
-        done < <({ grep -oE '"(\./|assets/)[A-Za-z0-9._/-]+"' "$dest" || true
-                   grep -oE 'url\(\./[A-Za-z0-9._/?=-]+\)' "$dest" || true; } | sort -u)
-        ;;
-    esac
-  done
-  [[ $skipped -gt 0 ]] && tally=" ($skipped discovered ref(s) skipped)"
-  log "shared-domain mirror: copied $copied file(s) from $other$tally"
 }
 
 if [[ $MODE == image && $TARGET == monitor ]]; then
   # ---- monitor host: publish exactly what the next jar embeds --------------
   log "monitor host: upserting ASSETS_BASE_URL=$BASE_URL in .env"
-  if grep -q '^ASSETS_BASE_URL=' .env; then
+  if [[ ${DEPLOY_ASSETS_HOOK:-} == 1 ]]; then
+    : # The upgrade supplies the exact baked-in origin.
+  elif grep -q '^ASSETS_BASE_URL=' .env; then
     sed -i.bak "s|^ASSETS_BASE_URL=.*|ASSETS_BASE_URL=$BASE_URL|" .env && rm -f .env.bak
   else
     printf '\nASSETS_BASE_URL=%s\n' "$BASE_URL" >> .env
   fi
-  if [[ ${DEPLOY_ASSETS_HOOK:-} == 1 ]]; then
-    # upgrade.sh re-publish: the running image already carries the base.
+  if [[ -n ${DEPLOY_ASSETS_IMAGE:-} ]]; then
+    IMG=$DEPLOY_ASSETS_IMAGE
+  elif [[ ${DEPLOY_ASSETS_HOOK:-} == 1 ]]; then
+    # Retry: publish the running image without rebuilding different bytes.
     CID=$(docker compose "${MON_COMPOSE[@]}" ps -q monitor)
     [[ -n $CID ]] || die "no running monitor container to extract from"
     IMG=$(docker inspect -f '{{.Image}}' "$CID")
@@ -541,6 +473,7 @@ if [[ $MODE == image && $TARGET == monitor ]]; then
     cat > "$MON_BUILD_OV" <<'OVERRIDE'
 services:
   monitor:
+    image: infinia-monitor-assets:latest
     build:
       context: .
       dockerfile: Dockerfile.monitor
@@ -549,53 +482,53 @@ services:
         ASSETS_BASE_URL: ${ASSETS_BASE_URL:-}
 OVERRIDE
     docker compose -f "$MON_BASE" -f "$MON_BUILD_OV" build monitor
-    MON_REG=$(grep -E '^MONITOR_IMAGE_REGISTRY=' .env | head -1 | cut -d= -f2- || true)
-    MON_TAG=$(grep -E '^MONITOR_IMAGE_TAG=' .env | head -1 | cut -d= -f2- || true)
-    IMG="${MON_REG:-ghcr.io}/muskstark/infinia-store-platform-monitor:${MON_TAG:-latest}"
+    IMG=$(docker image inspect -f '{{.Id}}' infinia-monitor-assets:latest)
   fi
   log "extracting the monitor SPA from the image's jar"
   docker create --name mon-extract-$$ "$IMG" >/dev/null
   trap 'docker rm -f mon-extract-$$ >/dev/null 2>&1 || true; cleanup' EXIT
   docker cp mon-extract-$$:/app/store-monitor.jar "$TMPDIST/web.jar"
-  docker rm -f mon-extract-$$ >/dev/null
-  mkdir -p "$TMPDIST/extract"
-  extract_jar_static "$TMPDIST/web.jar" "$TMPDIST/extract" && rm -f "$TMPDIST/web.jar"
-  if [[ $SHARED_MONITOR == 1 ]]; then
-    # Shared layout: the monitor SPA lives under /$MON_SUBTREE on the store's
-    # Pages project/domain — stage the dist as that subtree, add the shared
-    # root _headers, and mirror the store half in.
-    mkdir -p "$TMPDIST/stage/$MON_SUBTREE"
-    mv "$TMPDIST"/extract/* "$TMPDIST/stage/$MON_SUBTREE/"
-    write_shared_headers "$TMPDIST/stage"
-    mirror_shared_half "$TMPDIST/stage" monitor
-    DIST=$TMPDIST/stage
-    INDEX_HTML=$MON_SUBTREE/index.html
-  else
-    # Dedicated layout: the monitor's own project serves this dist at its
-    # root — publish as extracted. The Vite build's own _headers ships in the
-    # jar's static root; there is no other half to protect.
-    DIST=$TMPDIST/extract
-  fi
+  docker rm mon-extract-$$ >/dev/null
+  # Stage at /monitor for a shared origin, or at / for a dedicated origin.
+  mkdir -p "$TMPDIST/extract" "$TMPDIST/stage/$ASSET_REL"
+  extract_jar_static "$TMPDIST/web.jar" "$TMPDIST/extract"
+  rm -f "$TMPDIST/web.jar"
+  cp -R "$TMPDIST/extract/." "$TMPDIST/stage/$ASSET_REL/"
+  write_shared_headers "$TMPDIST/stage"
+  DIST=$TMPDIST/stage
+  INDEX_HTML=$ASSET_REL/index.html
 elif [[ $MODE == image ]]; then
   # ---- store host: publish exactly what the next jar embeds ----------------
   log "store host: upserting ASSETS_BASE_URL=$BASE_URL in .env"
-  if grep -q '^ASSETS_BASE_URL=' .env; then
+  if [[ ${DEPLOY_ASSETS_HOOK:-} == 1 ]]; then
+    : # The upgrade supplies the exact baked-in origin.
+  elif grep -q '^ASSETS_BASE_URL=' .env; then
     sed -i.bak "s|^ASSETS_BASE_URL=.*|ASSETS_BASE_URL=$BASE_URL|" .env && rm -f .env.bak
   else
     printf '\nASSETS_BASE_URL=%s\n' "$BASE_URL" >> .env
   fi
 
-  log "building the next image (the running container keeps serving)"
-  docker compose --profile app build store
+  if [[ -n ${DEPLOY_ASSETS_IMAGE:-} ]]; then
+    IMG=$DEPLOY_ASSETS_IMAGE
+  elif [[ ${DEPLOY_ASSETS_HOOK:-} == 1 ]]; then
+    CID=$(docker compose --profile app ps -q store)
+    [[ -n $CID ]] || die "no running store container to extract from"
+    IMG=$(docker inspect -f '{{.Image}}' "$CID")
+  else
+    log "building the next image (the running container keeps serving)"
+    docker compose --profile app build store
+    IMG=infinia-webservice
+  fi
 
-  log "extracting the SPA from the freshly built image's jar"
-  docker create --name web-extract-$$ infinia-webservice >/dev/null
+  log "extracting the SPA from the image's jar"
+  docker create --name web-extract-$$ "$IMG" >/dev/null
   trap 'docker rm -f web-extract-$$ >/dev/null 2>&1 || true; cleanup' EXIT
   docker cp web-extract-$$:/app/InfiniaWebService.jar "$TMPDIST/web.jar"
   docker rm web-extract-$$ >/dev/null
-  extract_jar_static "$TMPDIST/web.jar" "$TMPDIST" && rm -f "$TMPDIST/web.jar"
-  mirror_shared_half "$TMPDIST" store
-  DIST=$TMPDIST
+  mkdir -p "$TMPDIST/stage"
+  extract_jar_static "$TMPDIST/web.jar" "$TMPDIST/stage"
+  rm -f "$TMPDIST/web.jar"
+  DIST=$TMPDIST/stage
 else
   # ---- any host: build in a node container from the same lockfile ----------
   if [[ $TARGET == monitor ]]; then
@@ -613,55 +546,55 @@ else
     -e NPM_CONFIG_REGISTRY -e COREPACK_NPM_REGISTRY \
     "$NODE_IMAGE" sh -c \
       "corepack enable && yarn install --immutable && yarn workspace $WORKSPACE build"
-  if [[ $TARGET == monitor && $SHARED_MONITOR == 1 ]]; then
-    # Same shared-subtree staging as the image path.
-    STAGE="$TMPDIST/stage"
-    mkdir -p "$STAGE/$MON_SUBTREE"
-    cp -R "$PWD/$DISTDIR/." "$STAGE/$MON_SUBTREE/"
-    write_shared_headers "$STAGE"
-    mirror_shared_half "$STAGE" monitor
-    DIST=$STAGE
-    INDEX_HTML=$MON_SUBTREE/index.html
-  elif [[ $TARGET == monitor ]]; then
-    # Dedicated layout: the dist publishes as-is at the project root.
-    DIST=$PWD/$DISTDIR
-  else
-    DIST=$PWD/$DISTDIR
-    mirror_shared_half "$DIST" store
-  fi
+  DIST=$TMPDIST/stage
+  mkdir -p "$DIST/$ASSET_REL"
+  cp -R "$PWD/$DISTDIR/." "$DIST/$ASSET_REL/"
+  INDEX_HTML=$ASSET_REL/index.html
 fi
 
 test -f "$DIST/$INDEX_HTML" || die "no $INDEX_HTML under $DIST — build failed?"
+# Capture this build's entry before retention adds older index-*.js files.
+ENTRY=$(grep -oE 'src="[^"]*/assets/index-[^"/]+\.js"' "$DIST/$INDEX_HTML" | head -1)
+ENTRY=${ENTRY##*/}; ENTRY=${ENTRY%\"}
+[[ -n $ENTRY ]] || die "entry script not found in $INDEX_HTML"
+grep -Fq "src=\"$BASE_URL/assets/$ENTRY\"" "$DIST/$INDEX_HTML" || die "image/dist was built with a different ASSETS_BASE_URL; refusing to publish mismatched assets"
+PROBE_URL="$BASE_URL/assets/$ENTRY"
+retain_assets "$DIST"
+write_shared_headers "$DIST"
 publish_dist "$DIST"
 
 # ---- domain: attach via API, then wait until it actually serves ------------
 DOMAIN=${BASE_URL#https://}; DOMAIN=${DOMAIN%%/*}
-if [[ $TARGET == monitor && $SHARED_MONITOR == 1 ]]; then ASSET_REL=$MON_SUBTREE; else ASSET_REL=.; fi
-ENTRY=$(ls "$DIST/$ASSET_REL/assets" | grep -E '^index-[^/]+\.js$' | head -1)
-PROBE_URL="$BASE_URL/assets/$ENTRY"
 
 attach_domain() { # attach $DOMAIN to the Pages project — idempotent
   log "attaching custom domain $DOMAIN to Pages project $PROJECT"
   local status body
-  status=$(curl -sS -o "$TMPDIST/pages-domain.json" -w '%{http_code}' -X PUT \
-    "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/pages/projects/$PROJECT/domains/$DOMAIN" \
+  status=$(curl -sS -o "$TMPDIST/pages-domain.json" -w '%{http_code}' -X POST \
+    "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/pages/projects/$PROJECT/domains" \
     -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-    -H 'Content-Type: application/json' --data '{}')
+    -H 'Content-Type: application/json' --data "{\"name\":\"$DOMAIN\"}")
   body=$(cat "$TMPDIST/pages-domain.json" 2>/dev/null || true)
   if [[ $status == 2* ]] && printf '%s' "$body" | grep -q '"success":[[:space:]]*true'; then
-    log "domain attached — DNS record + certificate are provisioned by Cloudflare"
-  elif printf '%s' "$body" | grep -qiE 'already|exist'; then
+    log "domain attached — verify its CNAME/DNS configuration in Cloudflare"
+  elif printf '%s' "$body" | grep -qiE 'already (exists|attached)|already.*this project'; then
     log "domain already attached"
   else
     warn "domain attach returned HTTP $status — if the zone lives on another Cloudflare account,"
     warn "bind $DOMAIN in the Pages project settings (dashboard) instead"
   fi
 }
-attach_domain
+[[ $DOMAIN == "$PROJECT.pages.dev" ]] || attach_domain
+
+probe_asset() {
+  # A Pages SPA fallback can return HTTP 200 HTML for a missing .js file.
+  # Compare bytes, so an old bundle or fallback cannot trigger a cutover.
+  curl -fsS --max-time 20 "$PROBE_URL" -o "$TMPDIST/probe.js" 2>/dev/null &&
+    cmp -s "$TMPDIST/probe.js" "$DIST/$ASSET_REL/assets/$ENTRY"
+}
 
 wait_for_domain() { # 0 once $PROBE_URL serves; ~10 min of retries
   local tries=40 i=1
-  until curl -fsI --max-time 20 "$PROBE_URL" >/dev/null 2>&1; do
+  until probe_asset; do
     if [[ $i -ge $tries ]]; then return 1; fi
     [[ $((i % 4)) -eq 1 ]] && log "waiting for the domain to serve the assets (DNS/cert provisioning, up to ~10 min) — attempt $i/$tries"
     sleep 15
@@ -670,7 +603,7 @@ wait_for_domain() { # 0 once $PROBE_URL serves; ~10 min of retries
   return 0
 }
 
-if [[ $SWITCH -eq 1 ]]; then
+if [[ $SWITCH -eq 1 || $WAIT_ASSETS -eq 1 ]]; then
   log "waiting for $PROBE_URL"
   if ! wait_for_domain; then
     cat <<NOTICE
@@ -682,16 +615,20 @@ NOTICE
     exit 1
   fi
   log "domain is serving the published assets"
+  [[ $SWITCH -eq 1 ]] || exit 0
   if [[ $TARGET == monitor ]]; then
     log "switching the monitor to the new image"
     MC=(-f "$MON_BASE")
     [[ -f $MON_BUILD_OV ]] && MC+=(-f "$MON_BUILD_OV")
-    docker compose "${MC[@]}" up -d
+    # Keep future upgrades/retries on the same image selected for publication.
+    printf 'services:\n  monitor:\n    image: "%s"\n' "$IMG" > .monitor-release.yml
+    MC+=(-f .monitor-release.yml)
+    docker compose "${MC[@]}" up -d --no-build --pull never
     HEALTH_URL=http://127.0.0.1:8090/actuator/health
     WHAT=monitor
   else
     log "switching the store to the new image"
-    docker compose --profile app up -d
+    docker compose --profile app up -d --no-build --pull never
     HEALTH_URL=http://127.0.0.1:8080/actuator/health
     WHAT=store
   fi
@@ -704,18 +641,17 @@ NOTICE
   [[ $ok -eq 1 ]] && log "$WHAT is healthy — hard-refresh and verify assets load from $BASE_URL" \
                    || warn "$WHAT did not report UP within 300s — check: docker compose ps && docker compose logs --tail 50 $WHAT"
 else
-  if curl -fsI --max-time 20 "$PROBE_URL" >/dev/null 2>&1; then
+  if probe_asset; then
     log "domain is already serving the published assets"
   else
     log "domain provisioning started — DNS/cert usually take a few minutes"
   fi
-  # upgrade.sh sets DEPLOY_ASSETS_HOOK=1 for its post-deploy re-publish: the
-  # cutover hint does not apply there (the new container already runs).
+  # upgrade.sh handles its own cutover after the asset verification succeeds.
   if [[ ${DEPLOY_ASSETS_HOOK:-} != 1 ]]; then
     cat <<NEXT
 
 Assets published to Pages. To cut the $TARGET over (its host):
-  scripts/deploy-assets.sh --switch        # waits for the domain, then switches
+  scripts/deploy-assets.sh $([[ $TARGET == monitor ]] && printf "%s" "--monitor") --switch
 NEXT
   fi
 fi
