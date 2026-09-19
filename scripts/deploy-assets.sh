@@ -92,9 +92,9 @@ ALL=0
 
 while [[ $# -gt 0 ]]; do
   case $1 in
-    --base-url)   BASE_URL=${2:?}; shift 2 ;;
-    --dist)       DIST_ARG=${2:?}; shift 2 ;;
-    --project)    PROJECT=${2:?}; shift 2 ;;
+    --base-url)   BASE_URL=${2:?--base-url requires a value: absolute https URL}; shift 2 ;;
+    --dist)       DIST_ARG=${2:?--dist requires a value: directory path}; shift 2 ;;
+    --project)    PROJECT=${2:?--project requires a value: Pages project name}; shift 2 ;;
     --switch)     SWITCH=1; shift ;;
     --wait-assets) WAIT_ASSETS=1; shift ;;
     --all)        ALL=1; SWITCH=1; shift ;;
@@ -104,7 +104,7 @@ while [[ $# -gt 0 ]]; do
     --from-build) MODE=build; shift ;;
     --keep-dir)   KEEP_DIR=1; shift ;;
     --fresh-project) FRESH_PROJECT=1; shift ;;
-    --previous-dist) PREVIOUS_DIST=${2:?}; shift 2 ;;
+    --previous-dist) PREVIOUS_DIST=${2:?--previous-dist requires a value: directory holding the complete previous Pages tree}; shift 2 ;;
     -h|--help)    awk 'NR==1{next} /^set -e/{exit} {sub(/^# ?/, ""); print}' "$0"; exit 0 ;;
     *)            die "unknown option: $1 (see --help)" ;;
   esac
