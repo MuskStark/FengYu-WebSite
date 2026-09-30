@@ -20,67 +20,41 @@ FengYu main ──push──▶ docs.yml (publish-infinia job)
 - **Why `--base=/docs/`**: every internal link (nav, sidebar, locale switch,
   search index) carries the prefix, so the Worker forwards paths verbatim.
 
-## One-time setup (steps that need your credentials)
+## Current status / what's left
 
-The FengYu commit that carries the pipeline is staged locally at
-`/tmp/fengyu-main` (a worktree of `~/Develop/Java/FengYu`, branch `main`,
-commit `bb2d3328`). **Do step 1 before pushing it** — pushing while Pages is
-still in legacy mode would overwrite the live VitePress mirror with raw
-markdown sources.
+- ✅ FengYu main carries the VitePress site + `docs.yml` (`build`, `deploy`,
+  `publish-infinia` jobs all green). Push to main = docs rebuild.
+- ✅ Pages project `infinia-docs` live at `https://docs.infinia.fyi/docs/`
+  (en + zh, `--base=/docs/` build). Credentials live in the repo's
+  **CloudFlare** GitHub environment (`CF_PAGES_TOKEN`, `CF_ACCOUNT_ID`).
+- ⬜ The zone Worker (this directory) — `https://www.infinia.fyi/docs/` is
+  404 until it exists. Deploy it ONE of these ways:
+  1. **Via CI**: create a Cloudflare API token from the "Edit Cloudflare
+     Workers" template + `Zone:Edit` on infinia.fyi, put it in THIS repo's
+     `CloudFlare` environment as `CF_WORKERS_TOKEN` (plus `CF_ACCOUNT_ID`),
+     then run the **Docs Worker** workflow (Actions → Docs Worker → Run
+     workflow, or `gh workflow run "Docs Worker" -R MuskStark/infinia-store-platform`).
+     Note: the FengYu-side `CF_PAGES_TOKEN` (Pages:Edit only) can't do this.
+  2. **Via dashboard**: Workers & Pages → Create Worker (name
+     `infinia-docs-frontend`) → paste `worker.js` → deploy → Settings →
+     Domains & Routes → Add route `www.infinia.fyi/docs*`.
+  3. **Locally**: `CLOUDFLARE_API_TOKEN=<workers token> npx wrangler deploy`
+     in this directory.
+- ⬜ After the Worker answers (`curl -fsSI https://www.infinia.fyi/docs/`
+  → 200): publish the website SPA with the in-site `/docs` links through the
+  normal build/deploy flow — the intro site's commit already switched every
+  link in `store-web/src/intro/site/config.ts`.
 
-### 1. Switch FengYu GitHub Pages to Actions deployments (blocks the push)
+## Completed setup log
 
-GitHub → MuskStark/FengYu → Settings → Pages → Build and deployment →
-Source: **GitHub Actions**. (The REST PATCH needs a token with Pages write;
-the web UI is the one-liner.)
-
-### 2. Create the Pages project and bind docs.infinia.fyi
-
-```sh
-CLOUDFLARE_API_TOKEN=<token with Pages:Edit> CLOUDFLARE_ACCOUNT_ID=<id> \
-  npx wrangler pages project create infinia-docs --production-branch=main
-```
-
-Then dashboard → Workers & Pages → infinia-docs → Custom domains →
-`docs.infinia.fyi` (zone infinia.fyi; the CNAME is added automatically).
-Prefer the custom domain over `*.pages.dev` — reachability from CN.
-
-### 3. Deploy this Worker
-
-```sh
-cd scripts/docs-worker && npx wrangler deploy
-```
-
-Adds the route `www.infinia.fyi/docs*` on the infinia.fyi zone.
-
-### 4. FengYu repo secrets + enable flag
-
-```sh
-gh secret set CF_PAGES_TOKEN -R MuskStark/FengYu    # same Pages:Edit token
-gh secret set CF_ACCOUNT_ID  -R MuskStark/FengYu
-gh variable set CF_PAGES_ENABLED -R MuskStark/FengYu --body true
-```
-
-The `publish-infinia` job stays skipped until the flag exists, so a push
-before this step doesn't go red.
-
-### 5. Push FengYu main and verify
-
-```sh
-cd /tmp/fengyu-main && git push origin main
-gh run watch -R MuskStark/FengYu          # Docs: build ✓ deploy ✓ publish-infinia ✓
-curl -fsSI https://www.infinia.fyi/docs/ | head -1
-```
-
-(The worktree can be cleaned up afterwards:
-`git -C ~/Develop/Java/FengYu worktree remove /tmp/fengyu-main`.)
-
-### 6. Publish the website link switch
-
-`store-web/src/intro/site/config.ts` already points every docs link at
-`/docs/...` (committed locally in this repo). Build & publish the SPA through
-the normal flow only AFTER step 5 answers 200, so no visitor hits a dead
-"Docs" button mid-rollout.
+- FengYu GitHub Pages switched to Actions deployments; the
+  muskstark.github.io/FengYu mirror now rebuilds from main via `docs.yml`.
+- FengYu main carries the VitePress migration (`bb2d3328`) plus the
+  CloudFlare-environment wiring for the publish job (`6aa5830a`).
+- FengYu's Cloudflare credentials live in the repo's **CloudFlare**
+  environment (`CF_PAGES_TOKEN`, `CF_ACCOUNT_ID`); the repo-level
+  `CF_PAGES_ENABLED=true` variable gates the publish job (job-level `if`
+  can't see environment variables — hence repo scope).
 
 ## Notes
 
