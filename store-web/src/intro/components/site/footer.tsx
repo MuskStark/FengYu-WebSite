@@ -1,26 +1,31 @@
 import SiteLink from "@/intro/components/SiteLink";
 
-import { useLocale } from "@/intro/i18n";
-import { LINKS, STORE_URL, BASE_PATH } from "@/intro/site/config";
+import { useLocale, type Locale } from "@/intro/i18n";
+import { LINKS, STORE_URL, BASE_PATH, docsPath } from "@/intro/site/config";
 
-const EXTERNAL: Record<string, string> = {
-  DOCS: LINKS.docs,
-  AGENT: LINKS.docsAgent,
-  PLUGINS: LINKS.docsPlugins,
-  ARCH: LINKS.docsArchitecture,
-  CHANGELOG: LINKS.changelog,
-  GITHUB: LINKS.github,
-  RELEASES: LINKS.releases,
-  ISSUES: LINKS.issues,
-  STORE: STORE_URL,
-};
+/** Docs links are locale-aware in-app routes; the rest stay outbound. */
+function linkMap(locale: Locale): Record<string, string> {
+  return {
+    DOCS: docsPath(locale),
+    AGENT: docsPath(locale, "guide/ai-agent"),
+    PLUGINS: docsPath(locale, "plugins/overview"),
+    ARCH: docsPath(locale, "architecture/overview"),
+    CHANGELOG: LINKS.changelog,
+    GITHUB: LINKS.github,
+    RELEASES: LINKS.releases,
+    ISSUES: LINKS.issues,
+    STORE: STORE_URL,
+  };
+}
 
 function FooterColumn({
   title,
   links,
+  resolved,
 }: {
   title: string;
   links: { label: string; href: string }[];
+  resolved: Record<string, string>;
 }) {
   return (
     <div>
@@ -31,8 +36,8 @@ function FooterColumn({
         {links.map((link) => (
           <li key={link.label}>
             <SiteLink
-              href={EXTERNAL[link.href] ?? link.href}
-              {...(EXTERNAL[link.href]?.startsWith("http")
+              href={resolved[link.href] ?? link.href}
+              {...(resolved[link.href]?.startsWith("http")
                 ? { target: "_blank", rel: "noreferrer" }
                 : {})}
               className="text-sm text-neutral-400 transition-colors hover:text-white"
@@ -47,7 +52,8 @@ function FooterColumn({
 }
 
 export function Footer() {
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
+  const resolved = linkMap(locale);
 
   return (
     <footer className="relative z-10 w-full border-t border-white/10 bg-black">
@@ -70,9 +76,9 @@ export function Footer() {
             {t.footer.blurb}
           </p>
         </div>
-        <FooterColumn title={t.footer.productTitle} links={t.footer.product} />
-        <FooterColumn title={t.footer.resourcesTitle} links={t.footer.resources} />
-        <FooterColumn title={t.footer.ecosystemTitle} links={t.footer.ecosystem} />
+        <FooterColumn title={t.footer.productTitle} links={t.footer.product} resolved={resolved} />
+        <FooterColumn title={t.footer.resourcesTitle} links={t.footer.resources} resolved={resolved} />
+        <FooterColumn title={t.footer.ecosystemTitle} links={t.footer.ecosystem} resolved={resolved} />
       </div>
       <div className="border-t border-white/5">
         <div className="mx-auto flex max-w-7xl flex-col gap-2 px-6 py-6 text-xs text-neutral-600 md:flex-row md:items-center md:justify-between">

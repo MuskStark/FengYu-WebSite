@@ -217,16 +217,28 @@ public class ReviewService {
                     "Only freshly uploaded releases can be admin-published (current: "
                             + release.status + ")");
         }
-        boolean installable = release.artifacts.stream().anyMatch(a ->
-                a.kind() == dev.infinia.store.contract.type.ArtifactKind.INSTALLER
-                        || a.kind() == dev.infinia.store.contract.type.ArtifactKind.PORTABLE);
-        if (!installable) {
-            throw new DomainException(StoreErrorCode.VALIDATION_FAILED,
-                    "An app release needs at least one INSTALLER or PORTABLE artifact");
-        }
         Listing listing = listings.findById(release.listingId)
                 .orElseThrow(() -> new DomainException(StoreErrorCode.LISTING_NOT_FOUND,
                         "Listing not found"));
+        // What counts as the installable payload depends on the listing type: APP
+        // releases ship INSTALLER/PORTABLE distributions, everything a store can
+        // install into the host (plugins, skills, MCP, flows) ships as a PACKAGE.
+        boolean installable;
+        if (listing.type == dev.infinia.store.contract.type.ListingType.APP) {
+            installable = release.artifacts.stream().anyMatch(a ->
+                    a.kind() == dev.infinia.store.contract.type.ArtifactKind.INSTALLER
+                            || a.kind() == dev.infinia.store.contract.type.ArtifactKind.PORTABLE);
+        } else {
+            installable = release.artifacts.stream().anyMatch(a ->
+                    a.kind() == dev.infinia.store.contract.type.ArtifactKind.PACKAGE);
+        }
+        if (!installable) {
+            throw new DomainException(StoreErrorCode.VALIDATION_FAILED,
+                    listing.type + " release needs at least one "
+                            + (listing.type == dev.infinia.store.contract.type.ListingType.APP
+                                    ? "INSTALLER or PORTABLE" : "PACKAGE")
+                            + " artifact");
+        }
         release.status = ReleaseStatus.PUBLISHED;
         release.publishedAt = Instant.now();
         releases.save(release);

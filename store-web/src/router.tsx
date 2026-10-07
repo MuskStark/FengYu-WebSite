@@ -5,6 +5,8 @@ import RouteContent from './components/RouteContent';
 
 /** Routes with code splitting and role-aware guards (design §12.2). */
 const IntroductionView = lazy(() => import('./intro/app/page'));
+const DocsView = lazy(() => import('./intro/docs/DocsView'));
+const DocsEntryRedirect = lazy(() => import('./intro/docs/DocsView').then(m => ({ default: m.DocsEntryRedirect })));
 const DiscoverView = lazy(() => import('./views/DiscoverView'));
 const BrowseView = lazy(() => import('./views/BrowseView'));
 const ListingDetailView = lazy(() => import('./views/ListingDetailView'));
@@ -65,6 +67,9 @@ export function RouterTree() {
       <Routes>
         <Route path="/store" element={<DiscoverView />} />
         <Route path="/" element={<IntroductionView />} />
+        {/* Self-hosted documentation — content vendored from the FengYu repo. */}
+        <Route path="/docs" element={<DocsEntryRedirect />} />
+        <Route path="/docs/*" element={<DocsView />} />
         <Route path="/store/browse" element={<BrowseView />} />
         {/* The listing detail reads namespace/slug straight off the match so
             both props stay in sync with the URL (old `props: true`). */}

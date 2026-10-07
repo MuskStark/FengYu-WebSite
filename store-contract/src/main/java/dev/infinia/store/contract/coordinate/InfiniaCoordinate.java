@@ -18,9 +18,20 @@ public final class InfiniaCoordinate {
 
     public static final String SCHEME = "infinia://";
 
+    /**
+     * Segments are lowercase alphanumerics plus hyphens. The NAMESPACE additionally
+     * allows interior dots so a publisher's reverse-DNS-style prefix maps onto one
+     * namespace (the official FengYu plugins live under {@code fan.summer}, whose
+     * coordinate is {@code infinia://plugin/fan.summer/<slug>} and whose catalog id
+     * — {@code namespace + "." + slug} — must equal the plugin's manifest id
+     * {@code fan.summer.<slug>}); a slug never carries a dot because the id's dot
+     * separator belongs to the namespace/slug boundary.
+     */
     private static final Pattern SEGMENT = Pattern.compile("[a-z0-9][a-z0-9-]{0,62}");
+    private static final Pattern NAMESPACE_SEGMENT =
+            Pattern.compile("[a-z0-9][a-z0-9.-]{0,62}");
     private static final Pattern COORDINATE = Pattern.compile(
-            "^infinia://([a-z]+)/([a-z0-9][a-z0-9-]{0,62})/([a-z0-9][a-z0-9-]{0,62})(?:@(.+))?$",
+            "^infinia://([a-z]+)/([a-z0-9][a-z0-9.-]{0,62})/([a-z0-9][a-z0-9-]{0,62})(?:@(.+))?$",
             Pattern.CASE_INSENSITIVE);
 
     public final ListingType type;
@@ -68,7 +79,7 @@ public final class InfiniaCoordinate {
     }
 
     private static void validate(ListingType type, String namespace, String slug) {
-        if (!SEGMENT.matcher(namespace).matches()) {
+        if (!NAMESPACE_SEGMENT.matcher(namespace).matches()) {
             throw new IllegalArgumentException("Invalid namespace segment: " + namespace);
         }
         if (!SEGMENT.matcher(slug).matches()) {

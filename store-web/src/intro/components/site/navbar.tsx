@@ -2,7 +2,7 @@ import SiteLink from "@/intro/components/SiteLink";
 
 import { FloatingNav } from "@/intro/components/ui/floating-navbar";
 import { useLocale, type Locale } from "@/intro/i18n";
-import { LINKS, STORE_URL, BASE_PATH } from "@/intro/site/config";
+import { LINKS, STORE_URL, BASE_PATH, docsPath } from "@/intro/site/config";
 import { cn } from "@/lib/utils";
 
 function StoreIcon({ className }: { className?: string }) {
@@ -14,6 +14,21 @@ function StoreIcon({ className }: { className?: string }) {
         strokeWidth="1.5"
         strokeLinecap="round"
         strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function BookIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" className={cn("h-3.5 w-3.5", className)}>
+      <path
+        d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15.5H6.5A2.5 2.5 0 0 0 4 21V5.5Z M4 18.5A2.5 2.5 0 0 1 6.5 16H20"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        transform="translate(0 1)"
       />
     </svg>
   );
@@ -80,6 +95,13 @@ export function Navbar() {
 
           <div className="flex items-center gap-2">
             <SiteLink
+              href={docsPath(locale)}
+              className="inline-flex items-center gap-1.5 rounded-full border border-white/10 px-4 py-1.5 text-sm font-medium text-neutral-300 transition-colors hover:border-white/30 hover:text-white"
+            >
+              <BookIcon />
+              {t.nav.docs}
+            </SiteLink>
+            <SiteLink
               href={STORE_URL}
               className="inline-flex items-center gap-1.5 rounded-full border border-[var(--color-jb-green)]/40 bg-[var(--color-jb-green)]/10 px-4 py-1.5 text-sm font-medium text-[var(--color-jb-green)] transition-colors hover:border-[var(--color-jb-green)] hover:text-white"
             >
@@ -117,6 +139,7 @@ export function Navbar() {
       <FloatingNav
         navItems={[
           ...items,
+          { name: t.nav.docs, link: docsPath(locale), icon: <BookIcon className="h-4 w-4" /> },
           { name: t.nav.store, link: STORE_URL, icon: <StoreIcon className="h-4 w-4" /> },
         ]}
         cta={{ label: t.nav.download, href: "#downloads" }}

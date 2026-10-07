@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0">
+  <modelVersion>4.0.0</modelVersion>
+
+  <!--
+      FengYu official plugins — migrated from the main FengYu repository
+      (branch release/4.1.0). NOT part of the store reactor: these modules live
+      on the FengYu toolchain line (groupId fan.summer.fengyu, SDK 3.0.0).
+      Build out-of-band:
+
+          cd OfficialPlugins && ../mvnw -B package
+
+      The parent (fan.summer.fengyu:FengYu-parent) resolves from the local
+      repository — install it together with the SDK/DevKit from a sibling
+      FengYu checkout (see README.md, "Build & staging flow"). The parent
+      version is LITERAL on purpose: ${revision} in a repository-resolved
+      <parent><version> is never interpolated (it only works via relativePath
+      file matching inside the FengYu reactor), so it must be bumped by hand
+      together with the host version line.
+  -->
+  <parent>
+    <groupId>fan.summer.fengyu</groupId>
+    <artifactId>FengYu-parent</artifactId>
+    <version>4.1.0-alpha.1</version>
+    <relativePath/>
+  </parent>
+
+  <artifactId>OfficialPlugins</artifactId>
+  <packaging>pom</packaging>
+  <name>FengYu Official Plugins (aggregator)</name>
+
+  <modules>
+    <module>plugin-markdown</module>
+    <module>plugin-excel</module>
+    <module>plugin-email</module>
+    <module>plugin-offlinepython</module>
+  </modules>
+</project>

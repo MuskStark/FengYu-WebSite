@@ -1,0 +1,250 @@
+{
+  "generatedAt": "2026-09-27T08:13:12.696Z",
+  "sourceRef": "release/4.1.0",
+  "pages": {
+    "en": {
+      "architecture/backend": {
+        "title": "Backend"
+      },
+      "architecture/desktop": {
+        "title": "Desktop"
+      },
+      "architecture/frontend": {
+        "title": "Frontend"
+      },
+      "architecture/overview": {
+        "title": "Architecture Overview"
+      },
+      "architecture/plugin-system": {
+        "title": "Plugin System"
+      },
+      "design-system": {
+        "title": "Design System"
+      },
+      "features": {
+        "title": "Features"
+      },
+      "guide/ai-agent": {
+        "title": "AI Agent"
+      },
+      "guide/ai-chat": {
+        "title": "AI Chat"
+      },
+      "guide/configuration": {
+        "title": "Configuration"
+      },
+      "guide/database": {
+        "title": "Database"
+      },
+      "guide/flow-nodes": {
+        "title": "Flow Nodes"
+      },
+      "index": {
+        "title": "Infinia"
+      },
+      "plugins/ai-tools": {
+        "title": "AI Tools"
+      },
+      "plugins/build-deploy": {
+        "title": "Build & Deploy"
+      },
+      "plugins/database": {
+        "title": "Plugin Database Standard"
+      },
+      "plugins/email-center": {
+        "title": "Official Plugin — Email Center"
+      },
+      "plugins/file-io": {
+        "title": "File I/O"
+      },
+      "plugins/getting-started": {
+        "title": "Getting Started"
+      },
+      "plugins/i18n": {
+        "title": "Internationalization"
+      },
+      "plugins/manifest": {
+        "title": "Manifest"
+      },
+      "plugins/marketplace": {
+        "title": "Marketplace"
+      },
+      "plugins/official-browser": {
+        "title": "Built-in Browser Capability"
+      },
+      "plugins/official-excel": {
+        "title": "Official Plugin — Excel"
+      },
+      "plugins/official-markdown": {
+        "title": "Official Plugin — Markdown"
+      },
+      "plugins/official-offlinepython": {
+        "title": "Official Plugin — Offline Python"
+      },
+      "plugins/overview": {
+        "title": "Plugin Overview"
+      },
+      "plugins/pitfalls": {
+        "title": "Pitfalls"
+      },
+      "plugins/sdk-cli": {
+        "title": "SDK & CLI"
+      },
+      "plugins/ui-components": {
+        "title": "UI Components"
+      },
+      "plugins/ui-microfrontend": {
+        "title": "UI Micro-frontend"
+      },
+      "plugins/worker": {
+        "title": "Worker (JSON-RPC)"
+      },
+      "quickstart": {
+        "title": "Quick Start"
+      },
+      "reference/changelog": {
+        "title": "Changelog"
+      },
+      "reference/glossary": {
+        "title": "Glossary"
+      },
+      "reference/rest-api": {
+        "title": "REST API"
+      },
+      "reference/sse-events": {
+        "title": "SSE Events"
+      },
+      "reference/troubleshooting": {
+        "title": "Troubleshooting"
+      },
+      "skills/index": {
+        "title": "Skills"
+      },
+      "testing/update-testing": {
+        "title": "Application Update — Manual Test Checklist"
+      }
+    },
+    "zh": {
+      "architecture/backend": {
+        "title": "后端"
+      },
+      "architecture/desktop": {
+        "title": "桌面端"
+      },
+      "architecture/frontend": {
+        "title": "前端"
+      },
+      "architecture/overview": {
+        "title": "架构概述"
+      },
+      "architecture/plugin-system": {
+        "title": "插件系统"
+      },
+      "design-system": {
+        "title": "设计系统"
+      },
+      "features": {
+        "title": "功能特性"
+      },
+      "guide/ai-agent": {
+        "title": "AI 智能体"
+      },
+      "guide/ai-chat": {
+        "title": "AI 对话"
+      },
+      "guide/configuration": {
+        "title": "配置"
+      },
+      "guide/database": {
+        "title": "数据库"
+      },
+      "guide/flow-nodes": {
+        "title": "流程节点"
+      },
+      "index": {
+        "title": "蜂语 FengYu"
+      },
+      "plugins/ai-tools": {
+        "title": "AI 工具"
+      },
+      "plugins/build-deploy": {
+        "title": "构建与部署"
+      },
+      "plugins/database": {
+        "title": "插件数据库规范"
+      },
+      "plugins/email-center": {
+        "title": "官方插件：邮件中心"
+      },
+      "plugins/file-io": {
+        "title": "文件 I/O"
+      },
+      "plugins/getting-started": {
+        "title": "入门"
+      },
+      "plugins/i18n": {
+        "title": "国际化"
+      },
+      "plugins/manifest": {
+        "title": "清单"
+      },
+      "plugins/marketplace": {
+        "title": "插件市场"
+      },
+      "plugins/official-browser": {
+        "title": "内置浏览器能力"
+      },
+      "plugins/official-excel": {
+        "title": "官方插件——Excel"
+      },
+      "plugins/official-markdown": {
+        "title": "官方插件——Markdown"
+      },
+      "plugins/official-offlinepython": {
+        "title": "官方插件 —— Offline Python"
+      },
+      "plugins/overview": {
+        "title": "插件概述"
+      },
+      "plugins/pitfalls": {
+        "title": "常见陷阱"
+      },
+      "plugins/sdk-cli": {
+        "title": "SDK 与 CLI"
+      },
+      "plugins/ui-components": {
+        "title": "UI 组件"
+      },
+      "plugins/ui-microfrontend": {
+        "title": "UI 微前端"
+      },
+      "plugins/worker": {
+        "title": "Worker（JSON-RPC）"
+      },
+      "quickstart": {
+        "title": "快速开始"
+      },
+      "reference/changelog": {
+        "title": "更新日志"
+      },
+      "reference/glossary": {
+        "title": "术语表"
+      },
+      "reference/rest-api": {
+        "title": "REST API"
+      },
+      "reference/sse-events": {
+        "title": "SSE 事件"
+      },
+      "reference/troubleshooting": {
+        "title": "故障排查"
+      },
+      "skills/index": {
+        "title": "技能 (Skills)"
+      },
+      "testing/update-testing": {
+        "title": "应用更新 — 手动测试清单"
+      }
+    }
+  }
+}

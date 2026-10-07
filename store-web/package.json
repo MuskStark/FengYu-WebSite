@@ -8,6 +8,7 @@
     "build": "tsc --noEmit && vite build",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
+    "docs:sync": "node scripts/sync-docs.mjs",
     "gen:api": "openapi-typescript ../store-contract/src/main/resources/contract/openapi.yaml -o src/api/schema.d.ts"
   },
   "dependencies": {
@@ -15,6 +16,7 @@
     "clsx": "^2.1.1",
     "cn": "^0.2.6",
     "fflate": "^0.8.3",
+    "highlight.js": "^11.12.0",
     "i18next": "^26.4.2",
     "motion": "^13.2.0",
     "next-themes": "^0.4.6",
@@ -22,7 +24,10 @@
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "react-i18next": "^17.0.1",
+    "react-markdown": "^10.1.0",
     "react-router": "^7.9.1",
+    "rehype-highlight": "^7.0.2",
+    "remark-gfm": "^4.0.1",
     "tailwind-merge": "^3.6.0",
     "zustand": "^5.0.15"
   },

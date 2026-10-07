@@ -1,4 +1,7 @@
-# Infinia Store Platform
+# FengYu-WebSite
+
+> Formerly **Infinia Store Platform** (`infinia-store-platform`) — the repository was renamed;
+> old GitHub links redirect.
 
 The cloud control plane of the [Infinia / FengYu](https://github.com/MuskStark) ecosystem: a
 unified catalog, publishing pipeline, review workflow, signed delivery and account system for
@@ -34,6 +37,9 @@ store-platform/
 │                           #   store, serves the status page when the store is down
 ├── store-web/              # React + Vite frontend: store / publisher / review + project introduction
 ├── monitor-web/            # React status-page SPA (embedded in the monitor jar)
+├── OfficialPlugins/        # FengYu official plugins (migrated from the main FengYu repo;
+│                           #   FengYu toolchain line, NOT part of the store reactor —
+│                           #   see OfficialPlugins/README.md)
 └── store-web/src/components/magicui/  # Magic UI original components (MIT, verbatim from the registry)
 ```
 

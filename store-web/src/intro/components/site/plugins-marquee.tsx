@@ -3,7 +3,7 @@ import SiteLink from "@/intro/components/SiteLink";
 import { InfiniteMovingCards } from "@/intro/components/ui/infinite-moving-cards";
 import { SectionHeading } from "@/intro/components/site/section-heading";
 import { useLocale } from "@/intro/i18n";
-import { LINKS } from "@/intro/site/config";
+import { docsPath } from "@/intro/site/config";
 
 export function PluginsMarquee() {
   const { t, locale } = useLocale();
@@ -43,9 +43,7 @@ export function PluginsMarquee() {
           pauseOnHover
         />
         <SiteLink
-          href={LINKS.docsMarketplace}
-          target="_blank"
-          rel="noreferrer"
+          href={docsPath(locale, "plugins/marketplace")}
           className="mt-2 font-mono text-xs uppercase tracking-widest text-[var(--color-jb-green)] transition-colors hover:text-white"
         >
           {t.plugins.cta}

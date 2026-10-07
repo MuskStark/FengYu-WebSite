@@ -1,0 +1,68 @@
+name: Official Plugins Publish
+
+# Automatic store distribution for the official plugins: when a plugin's
+# manifest version moves on main (or on demand), build all four .fyp packages
+# through the usual dev-install flow and publish whatever is new to the store
+# via scripts/publish-official-plugins.mjs — ensure-listing + ticketed upload +
+# immediate platform-admin publish (the admin path signs the artifacts with the
+# platform Ed25519 key, which is what lets the host install fan.summer.*
+# plugins from the store). Idempotent: unchanged versions are skipped, and
+# downgrades are refused.
+#
+# One-time setup: the STORE_API_BASE / STORE_ADMIN_EMAIL / STORE_ADMIN_PASSWORD
+# repository secrets (a PLATFORM_ADMIN account on the production store).
+# Without them the job skips with a notice — CI behaves exactly as before.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'OfficialPlugins/**/manifest.base.json'
+      - 'scripts/publish-official-plugins.mjs'
+      - '.github/workflows/official-plugins-publish.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: official-plugins-publish
+  # Never cancel a mid-publish run: a half-uploaded release is worse than a
+  # queued duplicate (the script skips already-published versions anyway).
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Build & publish official plugins to the store
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      # Full history: scripts/restore-aceternity.mjs extracts the FengYu-adapted
+      # Aceternity components from a pinned pre-deletion commit.
+      - name: Check out the FengYu toolchain (sibling checkout, full history)
+        uses: actions/checkout@v4
+        with:
+          repository: MuskStark/FengYu
+          ref: release/4.1.0
+          path: FengYu
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: maven
+      # Node 24 keeps the bundled corepack the dev-install script relies on.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Build & publish (notice-skip without store secrets)
+        env:
+          STORE_API_BASE: ${{ secrets.STORE_API_BASE }}
+          STORE_ADMIN_EMAIL: ${{ secrets.STORE_ADMIN_EMAIL }}
+          STORE_ADMIN_PASSWORD: ${{ secrets.STORE_ADMIN_PASSWORD }}
+          FENGYU_ROOT: ${{ github.workspace }}/FengYu
+        run: |
+          if [[ -z "$STORE_ADMIN_EMAIL" || -z "$STORE_ADMIN_PASSWORD" ]]; then
+            echo "::notice title=Publish skipped::STORE_API_BASE / STORE_ADMIN_EMAIL / STORE_ADMIN_PASSWORD secrets are not set — automatic store publishing disabled"
+            exit 0
+          fi
+          ./dev-install-official-plugins.sh
+          node scripts/publish-official-plugins.mjs

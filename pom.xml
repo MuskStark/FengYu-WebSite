@@ -5,7 +5,7 @@
     <modelVersion>4.0.0</modelVersion>
 
     <!--
-        Infinia Store Platform — parent POM.
+        FengYu-WebSite — parent POM.
 
         Independent version line from the FengYu host application and the plugin
         toolchain (design §5.1 / ADR-001). Versions for the whole Spring stack are
@@ -17,10 +17,10 @@
     <version>0.1.0-SNAPSHOT</version>
     <packaging>pom</packaging>
 
-    <name>Infinia Store Platform</name>
+    <name>FengYu-WebSite</name>
     <description>Cloud control plane for the Infinia / FengYu ecosystem: catalog, publishing,
         review, signed delivery and accounts for APP, PLUGIN, SKILL, MCP and FLOW artifacts.</description>
-    <url>https://github.com/MuskStark/infinia-store-platform</url>
+    <url>https://github.com/MuskStark/FengYu-WebSite</url>
 
     <licenses>
         <license>

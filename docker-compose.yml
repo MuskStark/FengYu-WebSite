@@ -1,4 +1,4 @@
-# Local development / production stack for the Infinia Store Platform
+# Local development / production stack for FengYu-WebSite
 # (design §4 "Cloud" plane).
 #
 # Dependency plane (default):        docker compose up -d

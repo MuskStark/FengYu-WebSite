@@ -2,12 +2,16 @@
 import { HoverEffect } from "@/intro/components/ui/card-hover-effect";
 import { SectionHeading } from "@/intro/components/site/section-heading";
 import { useLocale } from "@/intro/i18n";
-import { LINKS } from "@/intro/site/config";
-
-const SURFACE_LINKS = [LINKS.docsPlugins, LINKS.docsSkills, LINKS.docsAgent];
+import { docsPath } from "@/intro/site/config";
 
 export function Surfaces() {
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
+
+  const surfaceLinks = [
+    docsPath(locale, "plugins/overview"),
+    docsPath(locale, "skills/index"),
+    docsPath(locale, "guide/ai-agent"),
+  ];
 
   return (
     <section id="surfaces" className="relative w-full py-24">
@@ -22,7 +26,7 @@ export function Surfaces() {
           items={t.surfaces.items.map((item, i) => ({
             title: item.title,
             description: item.description,
-            link: SURFACE_LINKS[i] ?? LINKS.docs,
+            link: surfaceLinks[i] ?? docsPath(locale),
           }))}
           className="max-w-6xl mx-auto md:grid-cols-3"
         />

@@ -5,7 +5,7 @@ import { Meteors } from "@/intro/components/ui/meteors";
 import { Button as MovingBorderButton } from "@/intro/components/ui/moving-border";
 import { FlipWords } from "@/intro/components/ui/flip-words";
 import { useLocale } from "@/intro/i18n";
-import { LINKS, STORE_URL } from "@/intro/site/config";
+import { LINKS, STORE_URL, docsPath } from "@/intro/site/config";
 
 function ArrowDownIcon({ className }: { className?: string }) {
   return (
@@ -22,7 +22,7 @@ function ArrowDownIcon({ className }: { className?: string }) {
 }
 
 export function Hero() {
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
 
   return (
     <section
@@ -93,9 +93,7 @@ export function Hero() {
             <span aria-hidden="true">→</span>
           </SiteLink>
           <SiteLink
-            href={LINKS.docs}
-            target="_blank"
-            rel="noreferrer"
+            href={docsPath(locale)}
             className="rounded-full border border-white/15 px-7 py-3 text-sm font-semibold text-neutral-200 transition-colors hover:border-white/40 hover:text-white"
           >
             {t.hero.ctaDocs}

@@ -18,7 +18,11 @@ export default function App({ children }: { children: React.ReactNode }) {
   const { t, i18n } = useTranslation();
   const location = useLocation();
   const navigate = useNavigate();
-  const bareChrome = location.pathname === '/store/signin' || location.pathname === '/';
+  // Docs pages render their own dark documentation chrome, like the intro.
+  const bareChrome =
+    location.pathname === '/store/signin' ||
+    location.pathname === '/' ||
+    location.pathname.startsWith('/docs');
   const auth = useAuth();
   const { resolvedTheme, setTheme } = useTheme();
 
