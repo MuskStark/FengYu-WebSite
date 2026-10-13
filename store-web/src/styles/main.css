@@ -146,6 +146,9 @@
   --color-muted: #a1a1aa;
   --color-line: #29292d;
   --color-control: #64646e;
+  /* Brand accent follows the Aceternity redesign language (brand purple) —
+   * the gold palette remains the LIGHT theme's identity. Links/selected text
+   * use a lighter step for contrast on the near-black canvas. */
   --color-brand: #f6bd60;
   --color-accent: #f6bd60;
   --color-info: #93c5fd;
@@ -460,7 +463,7 @@ input[type='checkbox'] {
 
 /* A quiet page scrollbar, matching the current surface instead of an OS white rail. */
 html { --page-scroll-thumb: #a1a1aa; --page-scroll-track: #faf9f6; scrollbar-width: thin; scrollbar-color: var(--page-scroll-thumb) var(--page-scroll-track); }
-html.dark, html.introduction-scrollbar { --page-scroll-thumb: #3f3f46; --page-scroll-track: #09090b; }
+html.dark, html.introduction-scrollbar, html.dark-page-scrollbar { --page-scroll-thumb: #3f3f46; --page-scroll-track: #09090b; }
 @supports selector(::-webkit-scrollbar) {
   html { scrollbar-width: auto; scrollbar-color: auto; }
   html::-webkit-scrollbar { width: 6px; height: 6px; }
@@ -528,4 +531,65 @@ html.dark, html.introduction-scrollbar { --page-scroll-thumb: #3f3f46; --page-sc
 .role-edit-trigger:focus-visible {
   outline: 1px solid var(--color-accent);
   outline-offset: 2px;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * Aceternity redesign tokens — shared by the official site (intro) and the
+ * store discover page. Dark-mode rendering is per-page: those pages wrap
+ * themselves in a `.dark` root, which both re-points the dark: variant and
+ * pulls the marketplace dark semantic tokens (§ main.css .dark block).
+ * ───────────────────────────────────────────────────────────────────────────── */
+@theme {
+  --color-jb-green: #21d789;
+  --color-jb-blue: #0b70f5;
+
+  --font-display: "Space Grotesk", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* Keyframes required by the vendored Aceternity components. --animate-scroll
+   * mirrors the scoped copy in intro.css; --animate-aurora-acet is deliberately
+   * separate from Magic UI's --animate-aurora (different motion language). */
+  --animate-scroll: scroll var(--animation-duration, 40s) var(--animation-direction, forwards) linear infinite;
+  --animate-aurora-acet: aurora-acet 60s linear infinite;
+  --animate-ripple: ripple 4s cubic-bezier(0.2, 0.68, 0.44, 1) infinite;
+
+  @keyframes scroll {
+    to {
+      transform: translate(calc(-50% - 0.5rem));
+    }
+  }
+  @keyframes aurora-acet {
+    from {
+      background-position:
+        50% 50%,
+        50% 50%;
+    }
+    to {
+      background-position:
+        350% 50%,
+        550% 50%;
+    }
+  }
+  @keyframes ripple {
+    0% {
+      transform: scale(0);
+      opacity: 0.5;
+    }
+    100% {
+      transform: scale(6);
+      opacity: 0;
+    }
+  }
+}
+
+/* Subtle hex (hive) texture — Infinia = FengYu, the bee motif. */
+@utility bg-hex-grid {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='56' height='100' viewBox='0 0 56 100'%3E%3Cpath d='M28 66L0 50V16l28-16 28 16v34zM28 100L0 84V50l28-16 28 16v34z' fill='none' stroke='rgba(255,255,255,0.055)' stroke-width='1'/%3E%3C/svg%3E");
+  background-size:
+    56px 100px,
+    56px 100px;
+}
+
+::selection {
+  background: rgba(167, 58, 253, 0.45);
 }

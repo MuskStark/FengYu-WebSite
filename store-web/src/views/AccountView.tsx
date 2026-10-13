@@ -20,6 +20,7 @@ import EmptyState from '../components/EmptyState';
 import ErrorState from '../components/ErrorState';
 import LoadingGrid from '../components/LoadingGrid';
 import PageHeader from '../components/PageHeader';
+import { BorderBeam } from '../components/aceternity/border-beam';
 import { formatDate, formatDateTime } from '../utils/format';
 import { useAuth, patchUser } from '../stores/auth';
 import { badgeToneClass, badgeBaseClass } from '../utils/badgeTone';
@@ -264,6 +265,7 @@ export default function AccountView() {
             <BlurFade>
               <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_18rem]">
               <div className="card grid overflow-hidden rounded-2xl lg:grid-cols-2">
+                <BorderBeam size={64} borderRadius={16} duration={9} colorFrom="#a73afd" colorTo="#0b70f5" />
                 <section className="flex min-w-0 flex-col justify-between gap-8 p-6 sm:p-8">
                   <div className="flex items-center gap-4">
                     <div className="grid size-16 shrink-0 place-items-center rounded-2xl border border-accent/20 bg-accent/10 text-2xl font-bold text-accent" aria-hidden="true">{userInitial}</div>
@@ -360,7 +362,7 @@ export default function AccountView() {
                 </section>
               </div>
               <nav aria-label={t('account.quickAccess')} className="card flex flex-col rounded-2xl p-5">
-                <h2 className="mb-3 text-xs font-semibold uppercase tracking-widest text-muted">{t('account.quickAccess')}</h2>
+                <h2 className="font-display mb-3 text-xs font-semibold uppercase tracking-widest text-muted">{t('account.quickAccess')}</h2>
                 {[
                   { to: '/store/library', title: t('nav.library'), hint: t('account.libraryHint'), icon: 'SKILL' },
                   { to: '/store/browse', title: t('nav.browse'), hint: t('account.browseHint'), icon: 'PLUGIN' },
@@ -379,7 +381,7 @@ export default function AccountView() {
               {/* Account details: display name and password live together. */}
               <BlurFade delay={0.08} className="flex min-w-0">
                 <div className="card w-full rounded-2xl p-6 sm:p-8">
-                  <h2 className="mb-3 font-semibold">
+                  <h2 className="font-display mb-3 font-semibold">
                     {t('account.editProfile')}
                   </h2>
                   <p className="mb-5 text-xs leading-5 text-muted">{t('account.profileHint')}</p>
@@ -423,7 +425,7 @@ export default function AccountView() {
                     className="my-6 border-t border-line"
                     aria-hidden="true"
                   />
-                  <h3 className="mb-2 text-sm font-semibold">
+                  <h3 className="font-display mb-2 text-sm font-semibold">
                     {t('account.changePassword')}
                   </h3>
                   <form
@@ -477,7 +479,7 @@ export default function AccountView() {
               {/* Sign-in sessions and devices */}
               <BlurFade delay={0.16} className="flex min-w-0">
                 <div className="card w-full rounded-2xl p-6 sm:p-8">
-                  <h2 id="account-security" className="mb-3 scroll-mt-24 font-semibold">
+                  <h2 id="account-security" className="font-display mb-3 scroll-mt-24 font-semibold">
                     {t('account.signinDevices')}
                   </h2>
                   <p className="mb-5 text-xs leading-5 text-muted">{t('account.securityHint')}</p>
@@ -586,7 +588,7 @@ export default function AccountView() {
               <div className="card rounded-2xl p-6 sm:p-8" data-testid="account-invitations">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
-                    <h2 className="font-semibold">{t('account.invitations')}</h2>
+                    <h2 className="font-display font-semibold">{t('account.invitations')}</h2>
                     <p className="mt-1 text-xs leading-5 text-muted">{t('account.invitationsHint')}</p>
                   </div>
                   {canShareInvitations && (

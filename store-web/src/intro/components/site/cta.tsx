@@ -1,42 +1,45 @@
+import { Ripple } from "@/components/aceternity/ripple";
+import { ShimmerButton } from "@/components/aceternity/shimmer-button";
 import SiteLink from "@/intro/components/SiteLink";
-
-import { LampContainer } from "@/intro/components/ui/lamp";
-import { Button as MovingBorderButton } from "@/intro/components/ui/moving-border";
 import { useLocale } from "@/intro/i18n";
-import { LINKS } from "@/intro/site/config";
+import { LINKS, STORE_URL } from "@/intro/site/config";
+import { DownloadIcon } from "./brand";
 
 export function CallToAction() {
   const { t } = useLocale();
-
   return (
-    <LampContainer className="min-h-[80vh]">
-      <h2 className="z-20 max-w-3xl bg-gradient-to-br from-white via-neutral-200 to-neutral-500 bg-clip-text text-center text-4xl font-bold tracking-tight text-transparent md:text-6xl">
-        {t.cta.heading}
-      </h2>
-      <p className="z-20 mt-6 max-w-xl text-center text-neutral-400">{t.cta.sub}</p>
-      <div className="z-20 mt-10 flex flex-wrap items-center justify-center gap-4">
-        <MovingBorderButton
-          as="a"
-          href={LINKS.releases}
-          target="_blank"
-          rel="noreferrer"
-          borderRadius="9999px"
-          duration={4500}
-          containerClassName="h-12 w-52 text-sm"
-          borderClassName="bg-[radial-gradient(var(--color-cyan-glow)_40%,transparent_60%)] opacity-80"
-          className="border-white/10 bg-black font-semibold text-white"
-        >
-          {t.cta.primary}
-        </MovingBorderButton>
-        <SiteLink
-          href={LINKS.github}
-          target="_blank"
-          rel="noreferrer"
-          className="rounded-full border border-white/15 px-7 py-3 text-sm font-semibold text-neutral-200 transition-colors hover:border-white/40 hover:text-white"
-        >
-          {t.cta.secondary}
-        </SiteLink>
+    <section className="relative overflow-hidden border-t border-white/10 py-36">
+      <Ripple mainCircleSize={240} mainCircleOpacity={0.22} numCircles={7} />
+      <div className="relative mx-auto max-w-3xl px-6 text-center">
+        <h2 className="font-display text-4xl font-bold tracking-tight text-white sm:text-5xl">
+          {t.cta.heading}
+        </h2>
+        <p className="mt-5 text-white/55">{t.cta.sub}</p>
+        <div className="mt-10 flex flex-wrap items-center justify-center gap-4">
+          <ShimmerButton
+            onClick={() => window.open(LINKS.releases, "_blank", "noreferrer")}
+            shimmerColor="rgba(246,189,96,0.9)"
+            className="text-base"
+          >
+            <DownloadIcon className="size-4" />
+            {t.cta.primary}
+          </ShimmerButton>
+          <SiteLink
+            href={LINKS.github}
+            target="_blank"
+            rel="noreferrer"
+            className="flex h-12 items-center rounded-full border border-white/20 px-8 text-sm font-semibold text-white/85 transition-colors hover:border-white/50 hover:text-white"
+          >
+            {t.cta.secondary}
+          </SiteLink>
+          <SiteLink
+            href={STORE_URL}
+            className="flex h-12 items-center rounded-full border border-white/20 px-8 text-sm font-semibold text-white/85 transition-colors hover:border-white/50 hover:text-white"
+          >
+            {t.nav.store} →
+          </SiteLink>
+        </div>
       </div>
-    </LampContainer>
+    </section>
   );
 }

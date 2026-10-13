@@ -1,12 +1,16 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
+import { cn } from '@/lib/utils';
 
 // Adapted from https://ui.aceternity.com/registry/notch.json:
 // same layout spring and staggered option reveal, anchored in the account header.
-export default function AccountNotch({ label, trigger, options, onSelect }: {
+// `ghostClosed` renders the closed trigger without its own surface so the notch
+// blends into a transparent navbar; opening still reveals the raised panel.
+export default function AccountNotch({ label, trigger, options, onSelect, ghostClosed }: {
   label: string; trigger: ReactNode;
   options: { id: string; label: string; danger?: boolean }[];
   onSelect: (id: string) => void;
+  ghostClosed?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
@@ -31,7 +35,12 @@ export default function AccountNotch({ label, trigger, options, onSelect }: {
   }}>
     <motion.div layout initial={false} transition={reduced ? { duration: 0 } : { type: 'spring', stiffness: 380, damping: 34 }}
       style={{ width: '100%' }}
-      className="absolute right-0 top-0 z-50 overflow-hidden rounded-2xl border border-line bg-surface-raised text-ink shadow-sm">
+      className={cn(
+        'absolute right-0 top-0 z-50 overflow-hidden rounded-2xl border shadow-sm',
+        ghostClosed && !open
+          ? 'border-transparent bg-transparent text-white [&>button:hover]:bg-white/5'
+          : 'border-line bg-surface-raised text-ink',
+      )}>
       <button type="button" aria-label={label} aria-haspopup="menu" aria-controls={id} aria-expanded={open}
         onClick={() => setOpen(!open)} className="flex min-h-11 w-full items-center justify-between gap-2 px-3 py-2 text-sm hover:bg-surface-muted">
         {trigger}
