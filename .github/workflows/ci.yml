@@ -109,10 +109,15 @@ jobs:
           cache-to: type=gha,mode=max
 
   # Push-to-deploy: once backend/frontend/images are green on main (or a
-  # manual workflow dispatch), SSH into the production host(s) and run
-  # scripts/upgrade.sh pinned to this commit. Entirely opt-in via repository
+  # manual workflow dispatch), publish the SPA assets from this runner
+  # (GitHub's route to Cloudflare is reliable; some deploy hosts cannot carry
+  # the retain pass), then SSH into the production host(s) and run
+  # scripts/upgrade.sh pinned to this commit with SKIP_ASSETS=1 — the host
+  # never needs to reach the Cloudflare edge. Entirely opt-in via repository
   # secrets — without DEPLOY_SSH_HOST + DEPLOY_SSH_PRIVATE_KEY the job just
-  # prints a notice and CI behaves exactly as before. One-time setup:
+  # prints a notice and CI behaves exactly as before; without the Cloudflare
+  # secrets the asset publish falls back to the upgrade-time host-side pass
+  # (upgrade.sh without SKIP_ASSETS). One-time setup:
   # DEPLOYMENT.md "Automated deploys".
   deploy:
     name: Deploy (production)
@@ -121,6 +126,9 @@ jobs:
     # PRs never deploy (their secrets are empty anyway); pushes to main and
     # manual "Run workflow" dispatches do.
     if: github.event_name != 'pull_request'
+    permissions:
+      contents: read
+      packages: read
     # One production deploy at a time — queue instead of cancelling mid-deploy.
     concurrency:
       group: production-deploy
@@ -130,8 +138,36 @@ jobs:
     environment: production
     timeout-minutes: 45
     steps:
+      - uses: actions/checkout@v4
+      - name: Lowercase repo name
+        run: echo "REPO_LC=${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+      - name: Log in to GHCR (pull the image the Images job pushed)
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish store assets from the runner (before cutover)
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          ASSETS_BASE_URL: https://assets.infinia.fyi
+          DEPLOY_ASSETS_HOOK: "1"
+          DEPLOY_ASSETS_IMAGE: ghcr.io/${{ env.REPO_LC }}:latest
+        run: |
+          set -euo pipefail
+          if [[ -z $CLOUDFLARE_ACCOUNT_ID || -z $CLOUDFLARE_API_TOKEN ]]; then
+            echo "::notice title=Asset publish skipped::CLOUDFLARE_ACCOUNT_ID / CLOUDFLARE_API_TOKEN secrets are not set — the store host falls back to its own asset publish during upgrade.sh"
+            exit 0
+          fi
+          bash scripts/deploy-assets.sh --from-image --wait-assets
+          echo "ASSETS_PUBLISHED=1" >> "$GITHUB_ENV"
       - name: Deploy over SSH (store host, then monitor host when configured)
         env:
+          # The runner published the assets → the host cuts over without
+          # touching the Cloudflare edge; the fallback value keeps the
+          # legacy host-side publish when the runner step was skipped.
+          SKIP_ASSETS: ${{ env.ASSETS_PUBLISHED == '1' && '1' || '0' }}
           # Store host: DEPLOY_SSH_HOST + DEPLOY_SSH_PRIVATE_KEY enable it.
           STORE_HOST: ${{ secrets.DEPLOY_SSH_HOST }}
           STORE_PORT: ${{ secrets.DEPLOY_SSH_PORT || '22' }}
@@ -172,9 +208,9 @@ jobs:
             if [[ -n $STORE_KNOWN_HOSTS ]]; then
               printf '%s\n' "$STORE_KNOWN_HOSTS" > ~/.ssh/kh_store
             fi
-            echo "==> store host $STORE_HOST:$STORE_PORT — deploying ${GITHUB_SHA:0:12} to $STORE_PATH"
+            echo "==> store host $STORE_HOST:$STORE_PORT — deploying ${GITHUB_SHA:0:12} to $STORE_PATH (SKIP_ASSETS=$SKIP_ASSETS)"
             ssh_run "$STORE_PORT" "$STORE_USER" "$STORE_HOST" ~/.ssh/deploy_store ~/.ssh/kh_store \
-              "cd '$STORE_PATH' && bash scripts/upgrade.sh --ref '$GITHUB_SHA'"
+              "cd '$STORE_PATH' && SKIP_ASSETS='$SKIP_ASSETS' bash scripts/upgrade.sh --ref '$GITHUB_SHA'"
           else
             echo "::notice title=Deploy skipped::DEPLOY_SSH_HOST / DEPLOY_SSH_PRIVATE_KEY secrets are not set — automated deploy disabled (setup: DEPLOYMENT.md, Automated deploys)"
           fi

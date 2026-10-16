@@ -449,6 +449,7 @@ ships as a Jenkins pipeline — "Jenkins instead of GitHub Actions" below.
    | `DEPLOY_KNOWN_HOSTS` | no | `ssh-keyscan -p <port> <host>` output; without it the first connection is trusted on first use |
    | `DEPLOY_MONITOR_SSH_HOST` | no | monitor host (split deployment); needs Docker access for its SSH user (root or the `docker` group) |
    | `DEPLOY_MONITOR_*` | no | per-host `USER`/`PORT`/`PRIVATE_KEY`/`KNOWN_HOSTS`/`PATH`; default to the store host's values |
+   | `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_API_TOKEN` | no | Pages · Edit token — the deploy job then publishes the SPA assets **from the runner** (whose route to Cloudflare is reliable) and the host cuts over with `SKIP_ASSETS=1`, never touching the edge itself; unset keeps the legacy upgrade-time host-side asset publish, which needs a host route that can actually reach the Cloudflare edge |
 
 4. Optional gate — *Settings → Environments → production → Required
    reviewers* turns every deploy into a one-click approval.
