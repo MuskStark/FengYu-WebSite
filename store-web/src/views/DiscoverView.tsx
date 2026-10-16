@@ -12,7 +12,6 @@ import { CardSpotlight } from '../components/aceternity/card-spotlight';
 import { InfiniteMovingCards } from '../components/aceternity/infinite-moving-cards';
 import { AnimatedTooltip } from '../components/aceternity/animated-tooltip';
 import { TracingBeam } from '../components/aceternity/tracing-beam';
-import { BorderBeam } from '../components/aceternity/border-beam';
 import { ShimmerButton } from '../components/aceternity/shimmer-button';
 import { SparklesCore } from '../components/aceternity/sparkles';
 import { SearchIcon } from '../components/aceternity/icons';
@@ -317,7 +316,7 @@ export default function DiscoverView() {
               </div>
               <div className="mt-10">
                 <InfiniteMovingCards
-                  items={items.map((l) => ({
+                  items={items.slice(0, 12).map((l) => ({
                     quote: l.summary ?? l.name,
                     name: l.name,
                     title: `${t(`type.${l.type}`)} · ↓ ${formatNumber(l.downloads ?? 0)}`,
@@ -444,40 +443,42 @@ function CatalogGrid({ items }: { items: CatalogItem[] }) {
   return (
     <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
       {items.map((item) => (
-        <CardSpotlight
+        <Link
           key={item.coordinate}
-          color={TYPE_COLORS[item.type as TypeKey] ?? '#a73afd'}
-          radius={260}
-          className="rounded-2xl p-6"
+          to={`/store/listing/${item.namespace}/${item.slug}`}
+          className="block rounded-2xl transition-transform duration-200 hover:-translate-y-0.5"
         >
-          <Link
-            to={`/store/listing/${item.namespace}/${item.slug}`}
-            className="flex flex-col gap-3"
+          <CardSpotlight
+            color={TYPE_COLORS[item.type as TypeKey] ?? '#a73afd'}
+            radius={260}
+            className="h-full rounded-2xl p-6"
           >
-            <div className="flex items-center gap-3">
-              {item.iconUrl ? (
-                <img src={item.iconUrl} alt="" className="size-12 shrink-0 rounded-xl object-cover" />
-              ) : (
-                <HexArt item={item} className="size-12 shrink-0" />
-              )}
-              <div className="min-w-0">
-                <p className="truncate font-display text-base font-semibold text-white">{item.name}</p>
-                <p className="truncate font-mono text-[11px] text-white/40">{item.namespace}</p>
+            <div className="flex flex-col gap-3">
+              <div className="flex items-center gap-3">
+                {item.iconUrl ? (
+                  <img src={item.iconUrl} alt="" className="size-12 shrink-0 rounded-xl object-cover" />
+                ) : (
+                  <HexArt item={item} className="size-12 shrink-0" />
+                )}
+                <div className="min-w-0">
+                  <p className="truncate font-display text-base font-semibold text-white">{item.name}</p>
+                  <p className="truncate font-mono text-[11px] text-white/40">{item.namespace}</p>
+                </div>
+                {item.channel && item.channel !== 'stable' && (
+                  <span className="ml-auto shrink-0 rounded-full border border-jb-orange/40 px-2 py-0.5 font-mono text-[9px] uppercase tracking-widest text-jb-orange">
+                    {t(`channel.${item.channel}`)}
+                  </span>
+                )}
               </div>
-              {item.channel && item.channel !== 'stable' && (
-                <span className="ml-auto shrink-0 rounded-full border border-jb-orange/40 px-2 py-0.5 font-mono text-[9px] uppercase tracking-widest text-jb-orange">
-                  {t(`channel.${item.channel}`)}
-                </span>
-              )}
+              <p className="line-clamp-2 min-h-10 text-sm leading-6 text-white/50">{item.summary}</p>
+              <div className="flex items-center justify-between border-t border-white/10 pt-3 font-mono text-[11px] text-white/45">
+                <span style={{ color: TYPE_COLORS[item.type as TypeKey] }}>{t(`type.${item.type}`)}</span>
+                {item.latestVersion && <span>v{item.latestVersion}</span>}
+                <span>↓ {formatNumber(item.downloads ?? 0)}</span>
+              </div>
             </div>
-            <p className="line-clamp-2 min-h-10 text-sm leading-6 text-white/50">{item.summary}</p>
-            <div className="flex items-center justify-between border-t border-white/10 pt-3 font-mono text-[11px] text-white/45">
-              <span style={{ color: TYPE_COLORS[item.type as TypeKey] }}>{t(`type.${item.type}`)}</span>
-              {item.latestVersion && <span>v{item.latestVersion}</span>}
-              <span>↓ {formatNumber(item.downloads ?? 0)}</span>
-            </div>
-          </Link>
-        </CardSpotlight>
+          </CardSpotlight>
+        </Link>
       ))}
     </div>
   );
@@ -515,8 +516,10 @@ function PinCard({ item }: { item: CatalogItem }) {
 function FeaturedCard({ item }: { item: CatalogItem }) {
   const { t } = useTranslation();
   return (
-    <div className="relative mt-8 grid overflow-hidden rounded-3xl border border-white/10 bg-white/[0.02] md:grid-cols-[1fr_1.2fr]">
-      <BorderBeam size={64} borderRadius={24} duration={9} colorFrom="#a73afd" colorTo="#0b70f5" />
+    <Link
+      to={`/store/listing/${item.namespace}/${item.slug}`}
+      className="relative mt-8 grid overflow-hidden rounded-3xl border border-white/10 bg-white/[0.02] transition-colors hover:border-white/25 md:grid-cols-[1fr_1.2fr]"
+    >
       {item.iconUrl ? (
         <img src={item.iconUrl} alt="" className="min-h-56 w-full object-cover md:min-h-full" />
       ) : (
@@ -548,14 +551,11 @@ function FeaturedCard({ item }: { item: CatalogItem }) {
           ))}
         </div>
         <div className="mt-2 inline-flex w-fit rounded-xl bg-[linear-gradient(90deg,#f6bd60,#eab04b)] p-px">
-          <Link
-            to={`/store/listing/${item.namespace}/${item.slug}`}
-            className="flex items-center gap-2 rounded-[11px] bg-neutral-950 px-6 py-3 text-sm font-semibold text-white"
-          >
+          <span className="flex items-center gap-2 rounded-[11px] bg-neutral-950 px-6 py-3 text-sm font-semibold text-white">
             {t('listing.overview')} →
-          </Link>
+          </span>
         </div>
       </div>
-    </div>
+    </Link>
   );
 }

@@ -86,7 +86,13 @@
 }
 
 .introduction-page .animate-spotlight { animation: var(--animate-spotlight); }
-.introduction-page .animate-scroll { animation: var(--animate-scroll); }
+/* Same :root-style resolution trap as main.css: --animate-scroll computes on
+ * .introduction-page, so the marquee container's inline --animation-duration
+ * never participates. Substitute the vars on the element itself. */
+.introduction-page .animate-scroll {
+  animation: scroll var(--animation-duration, 40s) var(--animation-direction, forwards)
+    linear infinite;
+}
 .introduction-page .animate-meteor-effect { animation: var(--animate-meteor-effect); }
 
 /* The step region still scrolls with wheel, touch and keyboard. */

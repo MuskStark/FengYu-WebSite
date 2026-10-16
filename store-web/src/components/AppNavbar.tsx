@@ -91,7 +91,7 @@ export function AppNavbar() {
         onChange={(e) => setSearchQuery(e.target.value)}
         type="search"
         placeholder={t('common.search')}
-        className="h-9 w-52 rounded-full border border-white/15 bg-white/5 px-4 text-sm text-white placeholder:text-white/35 focus:border-jb-purple/60 focus:outline-none"
+        className="h-9 w-40 min-w-0 rounded-full border border-white/15 bg-white/5 px-4 text-sm text-white placeholder:text-white/35 focus:border-jb-purple/60 focus:outline-none"
       />
     </form>
   );

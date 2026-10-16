@@ -20,7 +20,6 @@ import EmptyState from '../components/EmptyState';
 import ErrorState from '../components/ErrorState';
 import LoadingGrid from '../components/LoadingGrid';
 import PageHeader from '../components/PageHeader';
-import { BorderBeam } from '../components/aceternity/border-beam';
 import { formatDate, formatDateTime } from '../utils/format';
 import { useAuth, patchUser } from '../stores/auth';
 import { badgeToneClass, badgeBaseClass } from '../utils/badgeTone';
@@ -265,7 +264,6 @@ export default function AccountView() {
             <BlurFade>
               <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_18rem]">
               <div className="card grid overflow-hidden rounded-2xl lg:grid-cols-2">
-                <BorderBeam size={64} borderRadius={16} duration={9} colorFrom="#a73afd" colorTo="#0b70f5" />
                 <section className="flex min-w-0 flex-col justify-between gap-8 p-6 sm:p-8">
                   <div className="flex items-center gap-4">
                     <div className="grid size-16 shrink-0 place-items-center rounded-2xl border border-accent/20 bg-accent/10 text-2xl font-bold text-accent" aria-hidden="true">{userInitial}</div>

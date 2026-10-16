@@ -29,6 +29,14 @@ export const InfiniteMovingCards = ({
   const [start, setStart] = useState(false);
   function addAnimation() {
     if (containerRef.current && scrollerRef.current) {
+      // StrictMode (and any effect re-run) would double the children again —
+      // a doubled strip still loops seamlessly but drifts slower and grows
+      // without bound across re-mounts.
+      if (scrollerRef.current.dataset.cloned) {
+        setStart(true);
+        return;
+      }
+      scrollerRef.current.dataset.cloned = "true";
       const scrollerContent = Array.from(scrollerRef.current.children);
 
       scrollerContent.forEach((item) => {
@@ -60,13 +68,21 @@ export const InfiniteMovingCards = ({
   };
   const getSpeed = () => {
     if (containerRef.current) {
-      if (speed === "fast") {
-        containerRef.current.style.setProperty("--animation-duration", "20s");
-      } else if (speed === "normal") {
-        containerRef.current.style.setProperty("--animation-duration", "40s");
-      } else {
-        containerRef.current.style.setProperty("--animation-duration", "80s");
-      }
+      // The scroll keyframes translate half the strip width per loop, so a
+      // fixed duration makes long strips fly (the discover page feeds the
+      // whole catalog into this marquee). Hold a constant px/s velocity by
+      // dividing the measured half-width by the tier's rate; the static
+      // Aceternity durations stay as the fallback when measurement fails.
+      const rate = speed === "fast" ? 200 : speed === "normal" ? 100 : 50;
+      const halfWidth = scrollerRef.current
+        ? scrollerRef.current.scrollWidth / 2
+        : 0;
+      const duration = halfWidth > 0 ? Math.round(halfWidth / rate) : 0;
+      const fallback = speed === "fast" ? "20s" : speed === "normal" ? "40s" : "80s";
+      containerRef.current.style.setProperty(
+        "--animation-duration",
+        duration > 0 ? `${duration}s` : fallback,
+      );
     }
   };
   return (
