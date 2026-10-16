@@ -126,6 +126,11 @@ services:
       # Mirror for the image build's Maven downloads (slow links to Maven
       # Central); empty keeps Maven Central. See .env.example MAVEN_MIRROR.
         MAVEN_MIRROR: ${MAVEN_MIRROR:-}
+      # Mirror for the image build's npm/Yarn downloads (Corepack's Yarn CLI
+      # from repo.yarnpkg.com + packages from registry.npmjs.org — both
+      # unreachable from some networks); empty keeps the defaults. See
+      # .env.example NPM_MIRROR.
+        NPM_MIRROR: ${NPM_MIRROR:-}
         # Absolute origin baked in for the SPA's hashed assets when they are
         # published to Cloudflare Pages; empty keeps assets same-origin.
         # Must match the CI publish build (see .env.example ASSETS_BASE_URL).
@@ -207,6 +212,7 @@ services:
       dockerfile: Dockerfile.monitor
       args:
         MAVEN_MIRROR: ${MAVEN_MIRROR:-}
+        NPM_MIRROR: ${NPM_MIRROR:-}
     image: infinia-monitor
     profiles: ["monitor"]
     depends_on:

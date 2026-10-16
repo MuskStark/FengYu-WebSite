@@ -20,14 +20,24 @@
 # but is not yet wired into the application.
 
 # ---- Stage 1: unified frontend (store + introduction) ------------------
+# Optional npm mirror for slow links to npmjs.org / repo.yarnpkg.com
+# (docker-compose passes NPM_MIRROR from .env, e.g.
+# https://registry.npmmirror.com); empty keeps the default registries —
+# overseas deployments change nothing. The export covers Corepack's Yarn CLI
+# download, the generated .yarnrc line covers package resolution.
 FROM node:22-alpine AS web
+ARG NPM_MIRROR=""
 WORKDIR /workspace
 RUN corepack enable
 # Workspace manifests first so dependency resolution caches on its own layer.
 COPY package.json yarn.lock .yarnrc.yml ./
 COPY store-web/package.json store-web/package.json
 COPY monitor-web/package.json monitor-web/package.json
-RUN yarn install --immutable
+RUN if [ -n "$NPM_MIRROR" ]; then \
+      export COREPACK_NPM_REGISTRY="$NPM_MIRROR" \
+      && printf 'npmRegistryServer: "%s"\n' "$NPM_MIRROR" >> .yarnrc.yml; \
+    fi \
+ && yarn install --immutable
 COPY store-web/ store-web/
 # Absolute asset origin (Cloudflare Pages) — changes the bundle bytes/hashes, so
 # it must equal the ASSETS_BASE_URL the CI asset publish builds with. Empty
