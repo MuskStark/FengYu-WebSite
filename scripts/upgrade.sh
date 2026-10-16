@@ -239,9 +239,16 @@ log "building the next images (the current containers keep serving)"
 ASSETS_URL_VALUE=$(grep -E '^ASSETS_BASE_URL=' .env | head -1 | cut -d= -f2- || true)
 ASSETS_BASE_URL="$ASSETS_URL_VALUE" docker compose "${PROFILES[@]}" build || rollback
 if [[ $ASSETS_URL_VALUE == https://* ]]; then
-  log "publishing and verifying the next store's assets before cutover"
-  ASSETS_BASE_URL="$ASSETS_URL_VALUE" DEPLOY_ASSETS_HOOK=1 DEPLOY_ASSETS_IMAGE=infinia-webservice \
-    scripts/deploy-assets.sh --from-image --wait-assets || rollback
+  if [[ ${SKIP_ASSETS:-0} == 1 ]]; then
+    # Escape hatch for hosts whose route to the Cloudflare edge cannot carry
+    # the retain pass: publish the next bundle from another machine first
+    # (deploy-assets.sh --from-image --wait-assets), then cut over here.
+    warn "SKIP_ASSETS=1 — assuming the next bundle is already live on $ASSETS_URL_VALUE"
+  else
+    log "publishing and verifying the next store's assets before cutover"
+    ASSETS_BASE_URL="$ASSETS_URL_VALUE" DEPLOY_ASSETS_HOOK=1 DEPLOY_ASSETS_IMAGE=infinia-webservice \
+      scripts/deploy-assets.sh --from-image --wait-assets || rollback
+  fi
 fi
 log "restarting with the verified images"
 docker compose "${PROFILES[@]}" up -d --no-build || rollback
