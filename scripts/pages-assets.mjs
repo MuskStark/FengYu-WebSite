@@ -11,11 +11,13 @@ const excluded = (name) => name === MANIFEST || name.split('/').some(
   (part) => part.startsWith('.') || ['_headers', '_redirects', '_worker.js', 'functions'].includes(part),
 );
 
-// Origin fetches run from deploy hosts whose route to Cloudflare can be slow:
-// per-request timeout and retry count are operator-tunable (deploy-assets.sh
-// passes both through to the container fallback).
-const FETCH_TIMEOUT_MS = Number(process.env.ASSETS_FETCH_TIMEOUT_MS ?? 30000);
-const FETCH_RETRIES = Number(process.env.ASSETS_FETCH_RETRIES ?? 2);
+// Origin fetches run from deploy hosts whose route to Cloudflare can be slow
+// (multi-second first bytes observed in production): the defaults tolerate a
+// 2-minute first byte per request with 6 network-error retries, so a bare
+// `upgrade.sh` needs no configuration. Both are env-tunable for the
+// exceptional routes.
+const FETCH_TIMEOUT_MS = Number(process.env.ASSETS_FETCH_TIMEOUT_MS ?? 120000);
+const FETCH_RETRIES = Number(process.env.ASSETS_FETCH_RETRIES ?? 6);
 
 async function fetchOrigin(fetcher, url) {
   for (let attempt = 0; ; attempt++) {
