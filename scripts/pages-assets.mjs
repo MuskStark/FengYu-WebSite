@@ -11,6 +11,30 @@ const excluded = (name) => name === MANIFEST || name.split('/').some(
   (part) => part.startsWith('.') || ['_headers', '_redirects', '_worker.js', 'functions'].includes(part),
 );
 
+// Origin fetches run from deploy hosts whose route to Cloudflare can be slow:
+// per-request timeout and retry count are operator-tunable (deploy-assets.sh
+// passes both through to the container fallback).
+const FETCH_TIMEOUT_MS = Number(process.env.ASSETS_FETCH_TIMEOUT_MS ?? 30000);
+const FETCH_RETRIES = Number(process.env.ASSETS_FETCH_RETRIES ?? 2);
+
+async function fetchOrigin(fetcher, url) {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await fetcher(url, {
+        redirect: 'follow', signal: AbortSignal.timeout(FETCH_TIMEOUT_MS), cache: 'no-store',
+      });
+    } catch (error) {
+      // Network-level failures (timeout, reset) are worth another shot; HTTP
+      // error statuses come back as responses and never retry.
+      if (attempt >= FETCH_RETRIES) {
+        throw new Error(`${url} failed after ${attempt + 1} attempt(s): ${error.message}`);
+      }
+      console.error(`fetch ${url} failed (${error.message}); retry ${attempt + 1}/${FETCH_RETRIES}`);
+      await new Promise((resolve) => setTimeout(resolve, 3000 * (attempt + 1)));
+    }
+  }
+}
+
 async function files(dir, prefix = '') {
   const result = [];
   for (const entry of await readdir(dir, { withFileTypes: true })) {
@@ -46,9 +70,7 @@ function validate(manifest) {
 export async function retain({ stage, origin, fresh = false, previous = '', fetcher = fetch }) {
   const current = new Set(await files(stage));
   const get = async (name) => {
-    const response = await fetcher(`${origin}/${name}`, {
-      redirect: 'follow', signal: AbortSignal.timeout(30000), cache: 'no-store',
-    });
+    const response = await fetchOrigin(fetcher, `${origin}/${name}`);
     if (!response.ok) throw new Error(`HTTP ${response.status}: ${name}`);
     return Buffer.from(await response.arrayBuffer());
   };

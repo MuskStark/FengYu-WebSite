@@ -447,6 +447,7 @@ retain_assets() { # retain_assets <stage-dir>
     node scripts/pages-assets.mjs "$stage" "$origin" "$FRESH_PROJECT" "$PREVIOUS_DIST"
   else
     docker run --rm -v "$PWD/scripts:/scripts:ro" -v "$stage:/stage" "${previous_args[@]}" \
+      -e ASSETS_FETCH_TIMEOUT_MS -e ASSETS_FETCH_RETRIES \
       "$NODE_IMAGE" node /scripts/pages-assets.mjs /stage "$origin" "$FRESH_PROJECT" "${PREVIOUS_DIST:+/previous}"
   fi
 }
