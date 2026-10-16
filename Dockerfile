@@ -20,10 +20,10 @@
 # but is not yet wired into the application.
 
 # ---- Stage 1: unified frontend (store + introduction) ------------------
-# Optional npm mirror for slow links to npmjs.org / repo.yarnpkg.com
-# (docker-compose passes NPM_MIRROR from .env, e.g.
-# https://registry.npmmirror.com); empty keeps the default registries —
-# overseas deployments change nothing. The export covers Corepack's Yarn CLI
+# Optional npm mirror for slow links to npmjs.org / repo.yarnpkg.com:
+# docker-compose passes NPM_MIRROR (defaulting to npmmirror, see
+# .env.example) because Corepack's Yarn CLI download and package resolution
+# are unreachable from some networks. The export covers Corepack's Yarn CLI
 # download, the generated .yarnrc line covers package resolution.
 FROM node:22-alpine AS web
 ARG NPM_MIRROR=""

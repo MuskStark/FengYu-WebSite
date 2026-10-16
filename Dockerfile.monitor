@@ -17,7 +17,8 @@
 
 # ---- Stage 1: Monitor Web SPA (React + Vite) --------------------------------
 # NPM_MIRROR: same escape hatch as the store image's Dockerfile — Corepack's
-# Yarn CLI download and package resolution against a reachable registry.
+# Yarn CLI download and package resolution against a reachable registry
+# (compose defaults it to npmmirror).
 FROM node:22-alpine AS web
 ARG NPM_MIRROR=""
 WORKDIR /workspace
