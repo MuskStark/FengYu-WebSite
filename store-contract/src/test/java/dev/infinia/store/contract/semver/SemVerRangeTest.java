@@ -58,14 +58,15 @@ class SemVerRangeTest {
     }
 
     @Test
-    void prereleaseOfOtherTupleDoesNotMatchPlainRange() {
-        // npm rule: 4.1.0-alpha.1 does NOT satisfy >=4.0.0 <5.0.0 because no
-        // comparator mentions a prerelease on the 4.1.0 tuple.
-        assertFalse(SemVerRange.parse(">=4.0.0 <5.0.0").matches(SemVer.parse("4.1.0-alpha.1")));
-        // but a plain release in the same range matches
+    void prereleaseInsideTheWindowMatchesPlainRange() {
+        // Host semantics (FengYu SemanticVersionRange): no npm prerelease-membership
+        // gate — any prerelease inside the comparator window matches, so the store's
+        // resolution agrees with the host's own engine evaluation.
+        assertTrue(SemVerRange.parse(">=4.0.0 <5.0.0").matches(SemVer.parse("4.1.0-alpha.1")));
+        // a plain release in the same range matches
         assertTrue(SemVerRange.parse(">=4.0.0 <5.0.0").matches(SemVer.parse("4.1.0")));
-        // and an explicitly gated tuple matches its own prereleases
-        assertTrue(SemVerRange.parse(">=4.0.0-beta.5 <5.0.0").matches(SemVer.parse("4.0.0-rc.1")));
+        // ordering below the lower bound still refuses
+        assertFalse(SemVerRange.parse(">=4.0.0-beta.5 <5.0.0").matches(SemVer.parse("4.0.0-beta.4")));
     }
 
     @Test

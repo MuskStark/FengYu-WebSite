@@ -137,6 +137,30 @@ The script authenticates with the store CLI client (CI service account), creates
 `official/fengyu-host` APP listing on first use, uploads every asset through the presigned
 pipeline and submits for review. Desktop hosts update through two anonymous surfaces:
 
+#### Official plugins (FengYu 4.1.0+)
+
+Since FengYu 4.1.0 the host distributions bundle no plugins — the official plugins
+(`fan.summer.email` / `.excel` / `.markdown` / `.offlinepython`) are distributed only
+through this store, and the host trusts them solely via the platform Ed25519 signature
+(`trusted-store-keys.json` on the host side). Publish a directory of built `.fyp`
+packages (release assets from the FengYu plugin builds):
+
+```bash
+STORE_BASE=https://store.example.com \
+STORE_ADMIN_EMAIL=<platform-admin login> \
+STORE_ADMIN_PASSWORD=<password> \
+  scripts/publish-official-plugins.sh ./fengyu-main-plugins stable
+```
+
+The script logs in as a PLATFORM_ADMIN (approval needs the platform trust root: the
+scanner relaxes the reserved `fan.summer.*` / `official:true` rules for
+platform-owned listings, and the self-review guard is overridden for admins),
+creates or reuses each `official/<plugin>` PLUGIN listing from the package's own
+manifest, uploads the package (`PACKAGE` / universal), submits it, waits out the
+async scan and approves — approval platform-signs the envelope and every artifact,
+which is what the host's download chain verifies. Same-version published releases
+are skipped, so the run is idempotent.
+
 - The Debian client (electron-updater generic provider, channel `latest`) fetches
   `GET /fengyu-updates/deb/latest-linux.yml` (x64) or
   `GET /fengyu-updates/deb/latest-linux-arm64.yml` (ARM64) — an electron-builder-format document

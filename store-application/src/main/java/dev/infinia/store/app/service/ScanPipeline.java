@@ -10,6 +10,7 @@ import dev.infinia.store.domain.port.ListingRepository;
 import dev.infinia.store.domain.port.ReleaseRepository;
 import dev.infinia.store.domain.port.PublishingRepositories;
 import dev.infinia.store.domain.port.BlobStorage;
+import dev.infinia.store.domain.port.IdentityRepositories;
 import dev.infinia.store.domain.service.ReleaseStateMachine;
 import dev.infinia.store.scanner.PackageScanner;
 import dev.infinia.store.scanner.ScanResult;
@@ -47,16 +48,18 @@ public class ScanPipeline {
     private final ListingRepository listings;
     private final PublishingRepositories.ReviewRepository reviews;
     private final BlobStorage blobs;
+    private final IdentityRepositories.UserRepository users;
     private final PackageScanner scanner = new PackageScanner();
     private final ScanOutcomeStore outcomeStore;
 
     public ScanPipeline(ReleaseRepository releases, ListingRepository listings,
             PublishingRepositories.ReviewRepository reviews, BlobStorage blobs,
-            ScanOutcomeStore outcomeStore) {
+            IdentityRepositories.UserRepository users, ScanOutcomeStore outcomeStore) {
         this.releases = releases;
         this.listings = listings;
         this.reviews = reviews;
         this.blobs = blobs;
+        this.users = users;
         this.outcomeStore = outcomeStore;
     }
 
@@ -129,6 +132,14 @@ public class ScanPipeline {
             return null;
         }
         Listing listing = listings.findById(release.listingId).orElse(null);
+        // The platform publishing its own packages (official plugins) is the one
+        // FengYu-trusted publisher: scanner rules reserving fan.summer.* /
+        // official:true relax for listings owned by a PLATFORM_ADMIN. Derived from
+        // the listing owner at scan time so watchdog re-scans see the same posture.
+        boolean platformTrusted = listing == null || users
+                .findById(listing.publisherUserId)
+                .map(u -> u.hasRole(dev.infinia.store.contract.type.UserRole.PLATFORM_ADMIN))
+                .orElse(false);
         ScanResult result;
         if (listing != null && listing.type == ListingType.APP) {
             result = scanAppArtifacts(release);
@@ -141,7 +152,7 @@ public class ScanPipeline {
                 result = new ScanResult();
                 result.error("scanner.no-package", "No PACKAGE artifact attached");
             } else {
-                result = scanPackage(listing, release, artifact);
+                result = scanPackage(listing, release, artifact, platformTrusted);
             }
         }
         // Findings key on (rule, message); append the file so hits in different
@@ -168,7 +179,7 @@ public class ScanPipeline {
      * are bounded by the scanner's own read-back limit.
      */
     private ScanResult scanPackage(Listing listing, Release release,
-            Release.ArtifactInfo artifact) {
+            Release.ArtifactInfo artifact, boolean platformTrusted) {
         Path temp = null;
         try {
             temp = Files.createTempFile("infinia-scan-", ".pkg");
@@ -177,7 +188,7 @@ public class ScanPipeline {
                 in.transferTo(out);
             }
             return scanner.scan(listing == null ? "PLUGIN" : listing.type.name(),
-                    release.version.toString(), temp);
+                    release.version.toString(), temp, platformTrusted);
         } catch (IOException e) {
             ScanResult result = new ScanResult();
             result.error("scanner.io", "Package could not be read: " + e.getMessage());

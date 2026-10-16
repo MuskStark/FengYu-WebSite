@@ -2,6 +2,67 @@
 
 ## Unreleased
 
+### fix(web): constant-speed marquees, whole-card links, navbar squeeze
+
+- The vendored InfiniteMovingCards never actually received its per-instance
+  `--animation-duration`: the Tailwind v4 `@theme` value computes at `:root`,
+  baking in the 40s fallback before the container's inline variable is ever
+  consulted — every marquee ran at one fixed speed, and the discover page's
+  full-catalog strip scrolled at ~2800 px/s. The animation is now declared on
+  the element itself (main.css + intro.css) so the var substitutes where the
+  container's inline duration is visible, and the component derives the
+  duration from the measured half-width at a constant px/s rate (slow 50 /
+  normal 100 / fast 200) with a StrictMode double-clone guard. The discover
+  trending marquee feeds the top-12 by downloads instead of the whole index.
+- The featured card and every catalog grid card are now single whole-card
+  links to the listing detail (download) page — previously only a catalog
+  card's inner text was clickable. The border-beam orb is removed from the
+  featured and the account hero cards.
+- The global navbar keeps its labels on one line once auth-gated items appear
+  (whitespace-nowrap + shrink-0 anchors, tighter padding, 88% collapse width,
+  narrower search box) instead of squeezing each Chinese label into a
+  vertical stack.
+
+### feat(store): host the official plugins for the FengYu 4.1.0 line
+
+FengYu 4.1.0 bundles no plugins and seeds none — the official catalog lives only
+here, and the host trusts official identity solely via the platform Ed25519
+signature pinned in its `trusted-store-keys.json`. This adapts the store to that
+contract:
+
+- `scripts/publish-official-plugins.sh` drives the full pipeline for a directory
+  of built `.fyp` packages: login as PLATFORM_ADMIN (approval needs the trust
+  root — the self-review guard is overridden for admins), ensure the `official`
+  organization/namespace, create-or-reuse each `official/<plugin>` PLUGIN
+  listing from the package's own manifest (name, summary, `engines.fengyu` as
+  `requiresHost`), upload via the presigned `PACKAGE` pipeline, submit, wait out
+  the async scan and approve — approval platform-signs the envelope and every
+  artifact. Official listings are also marked `featured`, giving them the
+  store's 编辑推荐 / 热门扩展面 shelf out of the box. Same-version published
+  releases are skipped, so reruns are idempotent. Verified end-to-end: the four
+  4.0.0 packages (email/excel/markdown/offlinepython) publish, resolve for a
+  `4.1.0-beta.1` host and download with a matching digest and signature.
+- The discover page's cards navigate as whole cards: the featured card and
+  every catalog grid card are single links to the listing detail (download)
+  page — previously only the inner content of a catalog card was clickable and
+  the featured card carried a stray border-beam orb.
+- The scanner gained a platform-trust path: reserved-namespace and
+  `official:true` findings (`plugin.namespace-reserved`, `plugin.official-reserved`,
+  `skill.official-reserved`) no longer block listings owned by a PLATFORM_ADMIN —
+  the platform is the one FengYu-trusted publisher those rules protect. The flag
+  is derived from the listing owner at scan time, so watchdog re-scans see the
+  same posture; third-party uploads keep the guard.
+- Listing details now carry a top-level `descriptionMarkdown` (English
+  localization) beside the `localizations` list — the host's
+  `StoreModels.ListingDetail` reads the field at the top level and previously
+  always parsed null.
+- `SemVerRange` matching drops npm's prerelease-membership gate: prereleases
+  match by plain comparator ordering, mirroring the host's
+  `SemanticVersionRange` ("a prerelease inside the expanded window matches").
+  The store resolves on the host's behalf, so the stricter npm rule made the
+  store refuse plugins the host itself accepts — every plugin with engines
+  `>=4.0.0-rc.2 <5.0.0` was uninstallable on FengYu 4.1.0-beta.1.
+
 ### fix(assets): manifest-based retention, layout-aware monitor publishes
 
 - Every publish now ships `infinia-assets-manifest.json` (all files +

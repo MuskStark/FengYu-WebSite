@@ -20,6 +20,7 @@ public final class ListingDtos {
             String visibility,
             String status,
             String category,
+            String descriptionMarkdown,
             List<String> tags,
             String iconUrl,
             List<String> screenshots,

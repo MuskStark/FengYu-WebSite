@@ -22,6 +22,16 @@ public final class DtoMapper {
     public static ListingDtos.ListingDetailDto listingDetail(Listing listing,
             java.util.List<Release> releases, long favoriteCount,
             UpstreamItem upstream, UpstreamSource source) {
+        // Top-level convenience description beside the localizations list: the
+        // FengYu host's StoreModels.ListingDetail reads descriptionMarkdown at the
+        // top level, defaulting to the English (creation) localization.
+        String descriptionMarkdown = listing.localizations.stream()
+                .filter(l -> "en".equalsIgnoreCase(l.locale()))
+                .map(l -> l.descriptionMarkdown())
+                .filter(d -> d != null && !d.isBlank())
+                .findFirst()
+                .orElseGet(() -> listing.localizations.isEmpty() ? null
+                        : listing.localizations.get(0).descriptionMarkdown());
         return new ListingDtos.ListingDetailDto(
                 listing.id.toString(),
                 listing.coordinate().toString(),
@@ -31,6 +41,7 @@ public final class DtoMapper {
                 listing.visibility.name(),
                 listing.status,
                 listing.category,
+                descriptionMarkdown,
                 listing.tags,
                 listing.iconUrl,
                 listing.screenshots,

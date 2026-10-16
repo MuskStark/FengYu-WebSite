@@ -13,8 +13,10 @@ import java.util.Objects;
  *   <li>{@code ~1.2.3} and {@code ^1.2.3} shorthands (with 0.x zero-caret rules)</li>
  *   <li>hyphen ranges {@code 1.2.3 - 2.0.0}</li>
  *   <li>space = AND, {@code ||} = OR</li>
- *   <li>prerelease versions only match when a comparator carries a prerelease on the
- *       same [major.minor.patch] tuple</li>
+ *   <li>prerelease versions match by plain comparator ordering — the FengYu host's
+ *       {@code SemanticVersionRange} deliberately does not replicate npm's
+ *       prerelease-membership rule ("a prerelease inside the expanded window
+ *       matches"), and the store resolves on the host's behalf</li>
  * </ul>
  *
  * This matches the FengYu host {@code SemanticVersionRange} semantics referenced by the
@@ -45,11 +47,6 @@ public final class SemVerRange {
                 case "<=" -> c <= 0;
                 default -> false;
             };
-        }
-
-        /** True when this comparator whitelists prereleases on the given core tuple. */
-        boolean gatesPrerelease(String core) {
-            return version != null && version.isPrerelease() && version.core().equals(core);
         }
     }
 
@@ -273,14 +270,14 @@ public final class SemVerRange {
         boolean matches(SemVer v) {
             return left.matches(v) && right.matches(v);
         }
-
-        @Override
-        boolean gatesPrerelease(String core) {
-            return left.gatesPrerelease(core) || right.gatesPrerelease(core);
-        }
     }
 
     public boolean matches(SemVer version) {
+        // Plain comparator ordering only — deliberately NOT npm's prerelease
+        // membership rule. The store resolves on behalf of the FengYu host, whose
+        // SemanticVersionRange matches any prerelease inside the comparator window;
+        // gating here would make the store refuse plugins the host itself accepts
+        // (e.g. host 4.1.0-beta.1 against engines ">=4.0.0-rc.2 <5.0.0").
         for (List<ComparatorNode> set : orSets) {
             boolean all = true;
             for (ComparatorNode node : set) {
@@ -290,20 +287,6 @@ public final class SemVerRange {
                 }
             }
             if (all) {
-                // npm prerelease rule: a prerelease version can only satisfy a set that
-                // explicitly references a prerelease on the same [major.minor.patch] tuple.
-                if (version.isPrerelease()) {
-                    boolean gated = false;
-                    for (ComparatorNode node : set) {
-                        if (node.gatesPrerelease(version.core())) {
-                            gated = true;
-                            break;
-                        }
-                    }
-                    if (!gated) {
-                        continue;
-                    }
-                }
                 return true;
             }
         }

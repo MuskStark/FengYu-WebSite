@@ -56,13 +56,25 @@ public class PackageScanner {
     }
 
     public ScanResult scan(String listingType, String expectedVersion, byte[] content) {
+        return scan(listingType, expectedVersion, content, false);
+    }
+
+    /**
+     * @param platformTrusted the package is published by the platform itself
+     *        (PLATFORM_ADMIN listing owner): the reserved official-namespace /
+     *        official-flag rules do not apply — the platform is the one
+     *        FengYu-trusted publisher those rules protect (see
+     *        {@code trusted-store-keys.json} on the host side).
+     */
+    public ScanResult scan(String listingType, String expectedVersion, byte[] content,
+            boolean platformTrusted) {
         ScanResult result = new ScanResult();
         result.mimeType = sniffMime(content);
         try {
             switch (listingType.toUpperCase(Locale.ROOT)) {
                 case "PLUGIN" -> scanZipPackage(content, expectedVersion, result, "manifest.json",
-                        "PLUGIN");
-                case "SKILL" -> scanSkill(content, expectedVersion, result);
+                        "PLUGIN", platformTrusted);
+                case "SKILL" -> scanSkill(content, expectedVersion, result, platformTrusted);
                 case "FLOW" -> scanFlow(content, expectedVersion, result);
                 case "MCP" -> scanMcpTemplate(content, expectedVersion, result);
                 case "APP" -> scanApp(content, expectedVersion, result);
@@ -87,6 +99,11 @@ public class PackageScanner {
      * non-archive templates (MCP JSON) are read back in full under 16 MiB.
      */
     public ScanResult scan(String listingType, String expectedVersion, Path content) {
+        return scan(listingType, expectedVersion, content, false);
+    }
+
+    public ScanResult scan(String listingType, String expectedVersion, Path content,
+            boolean platformTrusted) {
         String type = listingType == null ? "" : listingType.toUpperCase(Locale.ROOT);
         if (type.equals("SKILL")) {
             ScanResult result = new ScanResult();
@@ -97,7 +114,7 @@ public class PackageScanner {
                             "Skill package exceeds the host's 10 MB package limit");
                     return result;
                 }
-                scanSkill(content, expectedVersion, result);
+                scanSkill(content, expectedVersion, result, platformTrusted);
             } catch (ScanViolation violation) {
                 result.findings.add(new ScanResult.Finding("CRITICAL", violation.rule,
                         violation.getMessage(), null));
@@ -118,7 +135,8 @@ public class PackageScanner {
                                 : "Non-archive template exceeds the 16 MiB scan limit");
                 return result;
             }
-            return scan(listingType, expectedVersion, Files.readAllBytes(content));
+            return scan(listingType, expectedVersion, Files.readAllBytes(content),
+                    platformTrusted);
         } catch (IOException e) {
             ScanResult result = new ScanResult();
             result.error("scanner.io", "Package could not be read: " + e.getMessage());
@@ -129,7 +147,7 @@ public class PackageScanner {
     // ---- PLUGIN (.fyp zip with a manifest.json at the root) ----
 
     private void scanZipPackage(byte[] content, String expectedVersion, ScanResult result,
-            String manifestName, String typeLabel) throws IOException {
+            String manifestName, String typeLabel, boolean platformTrusted) throws IOException {
         Map<String, SafeZip.ExtractedFile> files = SafeZip.extract(new ByteArrayInputStream(content),
                 limits);
         result.files.addAll(files.keySet());
@@ -162,12 +180,12 @@ public class PackageScanner {
         if (id == null || !FengYuHostRules.ID_PATTERN.matcher(id).matches()) {
             result.error("plugin.manifest-field",
                     "plugin.json 'id' must be a lowercase reverse-domain identifier");
-        } else if (id.startsWith(FengYuHostRules.OFFICIAL_NAMESPACE)) {
+        } else if (!platformTrusted && id.startsWith(FengYuHostRules.OFFICIAL_NAMESPACE)) {
             result.error("plugin.namespace-reserved",
                     "id must not use the reserved " + FengYuHostRules.OFFICIAL_NAMESPACE
                             + "* namespace");
         }
-        if (Boolean.TRUE.equals(json.path("official").asBoolean(false))) {
+        if (!platformTrusted && Boolean.TRUE.equals(json.path("official").asBoolean(false))) {
             result.error("plugin.official-reserved",
                     "Only FengYu-trusted publishers may declare official:true");
         }
@@ -358,8 +376,8 @@ public class PackageScanner {
 
     // ---- SKILL (.fys zip with manifest.json + SKILL.md) ----
 
-    private void scanSkill(byte[] content, String expectedVersion, ScanResult result)
-            throws IOException {
+    private void scanSkill(byte[] content, String expectedVersion, ScanResult result,
+            boolean platformTrusted) throws IOException {
         Map<String, SafeZip.ExtractedFile> files = SafeZip.extract(new ByteArrayInputStream(content),
                 limits);
         result.files.addAll(files.keySet());
@@ -388,8 +406,8 @@ public class PackageScanner {
         if (id == null || !FengYuHostRules.ID_PATTERN.matcher(id).matches()) {
             result.error("skill.manifest-field",
                     "manifest.json 'id' must be a lowercase reverse-domain identifier");
-        } else if (id.startsWith(FengYuHostRules.OFFICIAL_NAMESPACE)
-                || Boolean.TRUE.equals(json.path("official").asBoolean(false))) {
+        } else if (!platformTrusted && (id.startsWith(FengYuHostRules.OFFICIAL_NAMESPACE)
+                || Boolean.TRUE.equals(json.path("official").asBoolean(false)))) {
             result.error("skill.official-reserved",
                     "Only FengYu-trusted publishers may use the official namespace");
         }
@@ -415,8 +433,8 @@ public class PackageScanner {
                 Ed25519Signer.sha256Hex(content), files);
     }
 
-    private void scanSkill(Path content, String expectedVersion, ScanResult result)
-            throws IOException {
+    private void scanSkill(Path content, String expectedVersion, ScanResult result,
+            boolean platformTrusted) throws IOException {
         Map<String, Long> inventory = new LinkedHashMap<>();
         byte[] manifestBytes = null;
         boolean hasSkillMd = false;
@@ -486,13 +504,13 @@ public class PackageScanner {
             result.error("skill.manifest-invalid", "manifest.json is not valid JSON");
             return;
         }
-        validateSkillManifest(json, expectedVersion, hasSkillMd, result);
+        validateSkillManifest(json, expectedVersion, hasSkillMd, result, platformTrusted);
         result.sbom = SbomGenerator.generateInventory("SKILL", expectedVersion,
                 sha256Hex(content), inventory);
     }
 
     private void validateSkillManifest(JsonNode json, String expectedVersion,
-            boolean hasSkillMd, ScanResult result) {
+            boolean hasSkillMd, ScanResult result, boolean platformTrusted) {
         result.manifestName = text(json, "name");
         result.manifestVersion = text(json, "version");
         if (json.path("schemaVersion").asInt(-1) != FengYuHostRules.SKILL_SCHEMA_VERSION) {
@@ -503,8 +521,8 @@ public class PackageScanner {
         if (id == null || !FengYuHostRules.ID_PATTERN.matcher(id).matches()) {
             result.error("skill.manifest-field",
                     "manifest.json 'id' must be a lowercase reverse-domain identifier");
-        } else if (id.startsWith(FengYuHostRules.OFFICIAL_NAMESPACE)
-                || Boolean.TRUE.equals(json.path("official").asBoolean(false))) {
+        } else if (!platformTrusted && (id.startsWith(FengYuHostRules.OFFICIAL_NAMESPACE)
+                || Boolean.TRUE.equals(json.path("official").asBoolean(false)))) {
             result.error("skill.official-reserved",
                     "Only FengYu-trusted publishers may use the official namespace");
         }
