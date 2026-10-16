@@ -48,6 +48,13 @@ class ServiceStatusTest {
     @Test
     @SuppressWarnings("unchecked")
     void anonymousStatusSnapshotIsComplete() {
+        // The history renders persisted samples, and the scheduler's first tick
+        // (core 5 s, metrics 30 s) can lag a fast boot — sample every tier
+        // synchronously so these assertions never race the clock. The state
+        // machine confirms a component's first real observation immediately.
+        status.sampleCore();
+        status.sampleMetrics();
+        status.rollupSamples();
         ResponseEntity<Map> response = new Http(port).getJson("/api/v1/status", Map.class, null);
         assertEquals(200, response.getStatusCode().value());
 
@@ -91,6 +98,8 @@ class ServiceStatusTest {
     @Test
     @SuppressWarnings("unchecked")
     void repeatedReadsKeepTheLatestSample() {
+        status.sampleCore();
+        status.rollupSamples();
         status.page();
         status.page();
         ResponseEntity<Map> response = new Http(port).getJson("/api/v1/status", Map.class, null);
