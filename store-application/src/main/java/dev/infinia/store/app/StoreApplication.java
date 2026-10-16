@@ -7,7 +7,7 @@ import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
 import org.springframework.context.annotation.Import;
 
 /**
- * Infinia Store Platform — the single deployable application (design §5.1).
+ * FengYu-WebSite — the single deployable application (design §5.1).
  */
 @SpringBootApplication
 @ConfigurationPropertiesScan

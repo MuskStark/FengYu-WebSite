@@ -20,3 +20,8 @@ export const LINKS = {
   releases: "https://github.com/MuskStark/FengYu/releases",
   issues: "https://github.com/MuskStark/FengYu/issues",
 } as const;
+
+/** In-app docs route for a UI locale and docs slug (docs live at /docs, vendored from FengYu). */
+export function docsPath(locale: string, slug = "index"): string {
+  return `/docs/${locale === "zh-CN" ? "zh" : "en"}/${slug}`;
+}

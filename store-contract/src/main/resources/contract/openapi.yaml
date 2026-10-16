@@ -1,10 +1,10 @@
 openapi: 3.1.0
 info:
-  title: Infinia Store Platform API
+  title: FengYu-WebSite API
   version: 1.0.0
   summary: Catalog, publishing, review and delivery API for the Infinia / FengYu ecosystem.
   description: |
-    Versioned REST API of the Infinia Store Platform (design §10).
+    Versioned REST API of FengYu-WebSite (design §10).
 
     * Root path `/api/v1`; breaking changes ship as `/api/v2` — never via headers.
     * JSON is camelCase, timestamps are UTC RFC 3339, identifiers are UUIDv7/ULID.

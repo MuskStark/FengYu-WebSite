@@ -74,7 +74,7 @@ FROM eclipse-temurin:21-jre-noble AS runtime
 # OCI labels belong to a build stage — a LABEL before the first FROM is invalid.
 LABEL org.opencontainers.image.title="Infinia Store Monitor"
 LABEL org.opencontainers.image.description="Standalone status monitor for the Infinia Store Platform: probes the store's public status API, mirrors snapshots, keeps external-reachability history and incidents, and serves the public status UI from an independent process."
-LABEL org.opencontainers.image.source="https://github.com/MuskStark/infinia-store-platform"
+LABEL org.opencontainers.image.source="https://github.com/MuskStark/FengYu-WebSite"
 LABEL org.opencontainers.image.licenses="GPL-3.0-only"
 RUN apt-get update \
  && apt-get install -y --no-install-recommends curl ca-certificates \

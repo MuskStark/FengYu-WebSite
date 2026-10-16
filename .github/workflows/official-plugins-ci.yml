@@ -1,0 +1,59 @@
+name: Official Plugins CI
+
+# The four official plugins (fan.summer.*) build out-of-band from the store
+# reactor against the FengYu toolchain, which lives in the MAIN repository
+# (MuskStark/FengYu, branch release/4.1.0) — see OfficialPlugins/README.md.
+# dev-install-official-plugins.sh is the single entry point: it installs the
+# FengYu parent + Java toolchain into ~/.m2, rebuilds toolchain/ui/dist when
+# missing, restores the machine-local Aceternity components (license forbids
+# committing them; the restore script reads a pinned commit from the FengYu
+# history, hence fetch-depth: 0), builds all four plugins with tests, and
+# stages the .fyp packages.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'OfficialPlugins/**'
+      - 'dev-install-official-plugins.sh'
+      - '.github/workflows/official-plugins-ci.yml'
+  pull_request:
+    paths:
+      - 'OfficialPlugins/**'
+      - 'dev-install-official-plugins.sh'
+      - '.github/workflows/official-plugins-ci.yml'
+
+concurrency:
+  group: official-plugins-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  plugins:
+    name: Official plugins (toolchain from FengYu release/4.1.0)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      # Full history: scripts/restore-aceternity.mjs extracts the FengYu-adapted
+      # Aceternity components from a pinned pre-deletion commit.
+      - name: Check out the FengYu toolchain (sibling checkout, full history)
+        uses: actions/checkout@v4
+        with:
+          repository: MuskStark/FengYu
+          ref: release/4.1.0
+          path: FengYu
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: maven
+      # Node 24 keeps the bundled corepack the dev-install script relies on
+      # (Node >=25 dropped it); the plugin CLI needs >=24.18.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Build & stage all four official plugins (tests included)
+        env:
+          FENGYU_ROOT: ${{ github.workspace }}/FengYu
+        run: ./dev-install-official-plugins.sh

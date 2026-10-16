@@ -1,5 +1,5 @@
 {
-  "name": "infinia-store-platform",
+  "name": "fengyu-website",
   "private": true,
   "workspaces": [
     "store-web",
@@ -13,6 +13,7 @@
     "web": "yarn workspace @infinia/store-web dev",
     "web:build": "yarn workspace @infinia/store-web build",
     "web:test": "yarn workspace @infinia/store-web test",
+    "docs:sync": "yarn workspace @infinia/store-web docs:sync",
     "monitor": "yarn workspace @infinia/monitor-web dev",
     "monitor:build": "yarn workspace @infinia/monitor-web build",
     "monitor:test": "yarn workspace @infinia/monitor-web test",

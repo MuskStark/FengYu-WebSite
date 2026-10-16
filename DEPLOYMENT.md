@@ -1,6 +1,6 @@
 # Production Deployment
 
-Split-host deployment of the Infinia Store Platform behind a dedicated
+Split-host deployment of FengYu-WebSite (the store platform) behind a dedicated
 reverse proxy / WAF (tested topology: [SafeLine / 雷池](https://waf.chaitin.cn/)):
 the store stack runs on one server, the standalone status monitor on its own
 server (ADR-011 — the status page must survive a store outage), and the WAF

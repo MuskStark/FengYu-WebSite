@@ -13,6 +13,7 @@ export const en = {
     faq: "FAQ",
     download: "Download",
     store: "Store",
+    docs: "Docs",
     langSwitch: "中文",
     langSwitchAria: "Switch to Simplified Chinese",
   },
@@ -291,6 +292,20 @@ export const en = {
     ],
     legal: "GPL-3.0 licensed. The website itself is part of the same repository.",
     rights: "Built with ❤️ using Spring Boot, Vue 3, and Electron.",
+  },
+  docs: {
+    title: "Documentation",
+    searchPlaceholder: "Filter pages…",
+    noMatches: "No pages match.",
+    onThisPage: "On this page",
+    menu: "Browse docs",
+    notFound: "Page not found",
+    notFoundHint: "This page does not exist in the docs bundle — it may have been renamed or moved.",
+    backHome: "Back to docs home",
+    prev: "Previous",
+    next: "Next",
+    editPage: "Edit this page",
+    syncedFrom: (ref: string) => `Synced from the FengYu docs (${ref}).`,
   },
 };
 

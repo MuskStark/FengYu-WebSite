@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# One-click host deployment for the Infinia Store Platform (Linux, root or
+# One-click host deployment for FengYu-WebSite (Linux, root or
 # sudo, from the repo checkout). One script, two hosts (DEPLOYMENT.md):
 #
 #   store host (default) — the full stack behind a reverse proxy / WAF:
@@ -574,7 +574,7 @@ Deployment is up. Remaining wiring (see DEPLOYMENT.md):
        30 3 * * * cd $PWD && KEEP_DAYS=14 ./scripts/backup-stack.sh /mnt/backups/infinia
   4. Status monitor — split deployment (default): run it on its OWN host so
      the status page survives a store outage:
-       git clone <this repo>; cd infinia-store-platform
+       git clone <this repo>; cd FengYu-WebSite
        printf 'MONITOR_TARGET_BASE_URL=%s\n' "$STORE_URL" > .env
        docker compose -f docker-compose.monitor.yml up -d
      (single-host install instead: re-run this script with --with-monitor)

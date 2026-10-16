@@ -14,10 +14,13 @@ export default function App({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   const navigate = useNavigate();
   // The intro renders its own navbar/footer; the discover page carries its own
-  // dark footer; sign-in is fully bare. Everything else gets the marketplace
+  // dark footer; sign-in is fully bare; docs pages render their own dark
+  // documentation chrome, like the intro. Everything else gets the marketplace
   // chrome (dark Aceternity navbar + themed footer band).
-  const showNavbar = !['/', '/store/signin'].includes(location.pathname);
-  const showFooter = !['/', '/store', '/store/signin'].includes(location.pathname);
+  const bareChrome = location.pathname === '/' || location.pathname === '/store/signin'
+    || location.pathname.startsWith('/docs');
+  const showNavbar = !bareChrome && !['/store'].includes(location.pathname);
+  const showFooter = !bareChrome && !['/store'].includes(location.pathname);
   const auth = useAuth();
 
   // Load the session once at boot; guards hold their route until auth.ready.

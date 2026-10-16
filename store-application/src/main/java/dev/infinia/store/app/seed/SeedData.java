@@ -411,7 +411,7 @@ public class SeedData {
         release.createdAt = now;
         release.requiresHost = requiresHost;
         release.license = "MIT";
-        release.sourceUrl = "https://github.com/MuskStark/infinia-store-platform";
+        release.sourceUrl = "https://github.com/MuskStark/FengYu-WebSite";
         release.changelogMarkdown = "- Initial seeded release " + version;
         release.rolloutPercent = 100;
         releases.save(release);
