@@ -661,7 +661,8 @@ attach_domain() { # attach $DOMAIN to the Pages project — idempotent
 probe_asset() {
   # A Pages SPA fallback can return HTTP 200 HTML for a missing .js file.
   # Compare bytes, so an old bundle or fallback cannot trigger a cutover.
-  curl -fsS --max-time 20 "$PROBE_URL" -o "$TMPDIST/probe.js" 2>/dev/null &&
+  # 60s: congested routes can spend >10s on the handshake alone.
+  curl -fsS --max-time 60 "$PROBE_URL" -o "$TMPDIST/probe.js" 2>/dev/null &&
     cmp -s "$TMPDIST/probe.js" "$DIST/$ASSET_REL/assets/$ENTRY"
 }
 

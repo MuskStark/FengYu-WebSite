@@ -2,6 +2,7 @@
 // Retain the complete previous Pages tree; HTML alone cannot enumerate lazy chunks.
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
+import { Agent as HttpsAgent, request as httpsRequest } from 'node:https';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -27,6 +28,32 @@ const FETCH_RETRIES = Number(process.env.ASSETS_FETCH_RETRIES || 6);
 class HttpStatusError extends Error {}
 
 const describe = (error) => (error.cause?.code ? `${error.message} [${error.cause.code}]` : error.message);
+
+// Origin reads must NOT use the global fetch: undici caps the TCP/TLS
+// handshake at 10s, and deploy hosts sit on routes that need >10s just to
+// connect (curl gets HTTP 200 in ~13s while fetch dies ETIMEDOUT before
+// FETCH_TIMEOUT_MS ever applies). A plain https client with one timeout
+// spanning handshake AND body, plus keep-alive, survives those routes and
+// pays the slow handshake once for the whole retain pass.
+const originAgent = new HttpsAgent({ keepAlive: true });
+const slowRouteFetch = (url, { signal } = {}) => new Promise((resolve, reject) => {
+  const req = httpsRequest(url, { agent: originAgent, headers: { 'accept-encoding': 'identity' } }, (res) => {
+    const chunks = [];
+    res.on('data', (chunk) => chunks.push(chunk));
+    res.on('end', () => resolve({
+      ok: res.statusCode >= 200 && res.statusCode < 300,
+      status: res.statusCode,
+      arrayBuffer: async () => Buffer.concat(chunks),
+    }));
+  });
+  req.setTimeout(FETCH_TIMEOUT_MS, () => req.destroy(new Error('socket timed out')));
+  if (signal) {
+    if (signal.aborted) req.destroy(new Error('aborted'));
+    else signal.addEventListener('abort', () => req.destroy(new Error('aborted')), { once: true });
+  }
+  req.on('error', reject);
+  req.end();
+});
 
 async function fetchOrigin(fetcher, url, name = url) {
   for (let attempt = 0; ; attempt++) {
@@ -78,7 +105,7 @@ function validate(manifest) {
   return manifest.files;
 }
 
-export async function retain({ stage, origin, fresh = false, previous = '', fetcher = fetch }) {
+export async function retain({ stage, origin, fresh = false, previous = '', fetcher = slowRouteFetch }) {
   const current = new Set(await files(stage));
   const get = async (name) => fetchOrigin(fetcher, `${origin}/${name}`, name);
   const restore = async (name, data) => {
