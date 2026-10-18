@@ -28,6 +28,14 @@
 #   ASSETS_PAGES_PROJECT=infinia-assets          # or infinia-monitor-assets
 #   CLOUDFLARE_ACCOUNT_ID=<id>                   # required
 #   CLOUDFLARE_API_TOKEN=<token>                 # required; Pages · Edit
+#   ASSETS_VERIFY=warn                           # optional; publish proceeds
+#                                                 # when only this host's edge
+#                                                 # probe fails (congested route
+#                                                 # to the Pages domain)
+#   ASSETS_RETAIN_ORIGIN=https://<project>.pages.dev  # optional; retain reads
+#                                                 # come from this origin when
+#                                                 # the custom domain's route
+#                                                 # is unhealthy on this host
 #   NPM_CONFIG_REGISTRY=https://registry.npmmirror.com   # optional
 #   NODE_IMAGE=node:22-alpine                    # optional
 #
@@ -113,6 +121,13 @@ done
 
 # ---------------------------------------------------- configuration ---------
 CONFIG_FILE=deploy.conf
+# Retention archive: the complete Pages tree this host last published to this
+# project. Present → the retain pass reads it instead of the live origin, so
+# publishing only needs api.cloudflare.com (reachable even when this host's
+# route to the Pages edge domain is congested). Seed it once from any machine
+# that CAN read the origin — download every manifest file, or re-publish with
+# --previous-dist — then every later publish refreshes it automatically.
+ARCHIVE_DIR=.assets-archive
 INTERACTIVE=0
 [[ -t 0 ]] && INTERACTIVE=1
 
@@ -280,8 +295,10 @@ resolve_project
 export PAGES_INIT=${PAGES_INIT:-1} ASSETS_PAGES_PROJECT=$PROJECT
 
 # wrangler without a host Node toolchain: prefer local npx, else run it in a
-# throwaway node container (the Docker-only deploy hosts).
-wrangler_create() { # create the Pages project if absent
+# throwaway node container (the Docker-only deploy hosts). Both API calls are
+# retried: congested routes to Cloudflare fail individual connects that a
+# second attempt minutes later survives.
+wrangler_create_once() {
   if command -v npx >/dev/null; then
     npx --yes wrangler@4 pages project create "$PROJECT" --production-branch=main
   else
@@ -292,7 +309,25 @@ wrangler_create() { # create the Pages project if absent
   fi
 }
 
-wrangler_deploy() { # wrangler_deploy <dist-abs> — publish the directory
+wrangler_create() { # create the Pages project if absent (idempotent, retried)
+  local attempt output
+  for attempt in 1 2 3; do
+    if output=$(wrangler_create_once 2>&1); then
+      [[ -n $output ]] && printf '%s\n' "$output"
+      return 0
+    fi
+    if printf '%s' "$output" | grep -qi 'already exists'; then
+      [[ -n $output ]] && printf '%s\n' "$output"
+      return 0
+    fi
+    [[ $attempt -eq 3 ]] && { printf '%s' "$output" >&2; return 1; }
+    warn "Pages project create failed (attempt $attempt/3); retrying in 15s"
+    printf '%s\n' "$output" >&2
+    sleep 15
+  done
+}
+
+wrangler_deploy_once() { # wrangler_deploy_once <dist-abs>
   local dist=$1
   if command -v npx >/dev/null; then
     npx --yes wrangler@4 pages deploy --project-name="$PROJECT" --branch=main \
@@ -306,10 +341,29 @@ wrangler_deploy() { # wrangler_deploy <dist-abs> — publish the directory
       "$NODE_IMAGE" npx --yes wrangler@4 pages deploy \
       --project-name="$PROJECT" --branch=main --commit-dirty=true /dist
   fi
+}
+
+wrangler_deploy() { # wrangler_deploy <dist-abs> — publish the directory (retried)
+  local dist=$1 attempt
+  for attempt in 1 2 3; do
+    if wrangler_deploy_once "$dist"; then break; fi
+    [[ $attempt -eq 3 ]] && return 1
+    warn "Pages deploy failed (attempt $attempt/3); retrying in 15s"
+    sleep 15
+  done
   # A containerized wrangler leaves .wrangler root-owned; without the
   # fallback set -e aborts the script AFTER a successful publish.
   rm -rf "$dist/.wrangler" 2>/dev/null ||
     docker run --rm -v "$dist:/dist" "$NODE_IMAGE" sh -c 'rm -rf /dist/.wrangler'
+}
+
+pages_project_exists() { # 0 = confirmed to exist; 1 = missing or unverifiable
+  [[ -n ${CLOUDFLARE_ACCOUNT_ID:-} && -n ${CLOUDFLARE_API_TOKEN:-} ]] || return 1
+  local status
+  status=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 \
+    "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/pages/projects/$PROJECT" \
+    -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN") || return 1
+  [[ $status == 200 ]]
 }
 
 # Publish a built dist (dist layout at its root) to the Pages project.
@@ -327,13 +381,11 @@ publish_dist() { # publish_dist <dist-dir> — index per $INDEX_HTML
   fi
 
   if [[ ${PAGES_INIT:-} == 1 ]]; then
-    log "creating Pages project $PROJECT (production branch main) if absent"
-    local create_output
-    if ! create_output=$(wrangler_create 2>&1); then
-      if ! printf '%s' "$create_output" | grep -qi 'already exists'; then
-        printf '%s\n' "$create_output" >&2
-        die "Pages project creation failed"
-      fi
+    if pages_project_exists; then
+      log "Pages project $PROJECT already exists — skipping creation"
+    else
+      log "creating Pages project $PROJECT (production branch main) if absent"
+      wrangler_create || die "Pages project creation failed"
     fi
   fi
 
@@ -436,8 +488,16 @@ HEADERS
 
 # Build a complete publish tree, retaining both SPAs and previous hashed files.
 # Node is available locally or in the same container used by the build.
+# Origin reads go via $ASSETS_RETAIN_ORIGIN when set — e.g. the project's
+# pages.dev host: same production deployment, often a healthier route than
+# the custom domain (every file is sha256-verified against the manifest, so
+# the serving host cannot corrupt the retain pass).
 retain_assets() { # retain_assets <stage-dir>
-  local stage=$1 origin=${BASE_URL%/monitor}
+  local stage=$1 origin=${ASSETS_RETAIN_ORIGIN:-${BASE_URL%/monitor}}
+  if [[ -n ${ASSETS_RETAIN_ORIGIN:-} && $ASSETS_RETAIN_ORIGIN != https://* ]]; then
+    die "ASSETS_RETAIN_ORIGIN must be an absolute https://HOST URL"
+  fi
+  origin=${origin%/}
   local previous_args=()
   if [[ -n $PREVIOUS_DIST ]]; then
     PREVIOUS_DIST=$(cd "$PREVIOUS_DIST" && pwd)
@@ -560,9 +620,21 @@ ENTRY=${ENTRY##*/}; ENTRY=${ENTRY%\"}
 [[ -n $ENTRY ]] || die "entry script not found in $INDEX_HTML"
 grep -Fq "src=\"$BASE_URL/assets/$ENTRY\"" "$DIST/$INDEX_HTML" || die "image/dist was built with a different ASSETS_BASE_URL; refusing to publish mismatched assets"
 PROBE_URL="$BASE_URL/assets/$ENTRY"
+if [[ -z $PREVIOUS_DIST && -d $ARCHIVE_DIR && $FRESH_PROJECT -eq 0 ]]; then
+  log "retaining from the local archive $ARCHIVE_DIR — no origin reads"
+  PREVIOUS_DIST=$ARCHIVE_DIR
+fi
 retain_assets "$DIST"
 write_shared_headers "$DIST"
 publish_dist "$DIST"
+# The archive is the next publish's retention source: snapshot exactly the
+# tree that just went live (manifest + retained files included).
+log "refreshing the local publish archive $ARCHIVE_DIR"
+rm -rf "${ARCHIVE_DIR}.next"
+mkdir -p "${ARCHIVE_DIR}.next"
+cp -R "$DIST/." "${ARCHIVE_DIR}.next/"
+rm -rf "$ARCHIVE_DIR"
+mv "${ARCHIVE_DIR}.next" "$ARCHIVE_DIR"
 
 # ---- domain: attach via API, then wait until it actually serves ------------
 DOMAIN=${BASE_URL#https://}; DOMAIN=${DOMAIN%%/*}
@@ -607,15 +679,24 @@ wait_for_domain() { # 0 once $PROBE_URL serves; ~10 min of retries
 if [[ $SWITCH -eq 1 || $WAIT_ASSETS -eq 1 ]]; then
   log "waiting for $PROBE_URL"
   if ! wait_for_domain; then
-    cat <<NOTICE
+    if [[ $SWITCH -eq 0 && ${ASSETS_VERIFY:-strict} == warn ]]; then
+      # The publish itself already succeeded via api.cloudflare.com; only
+      # this host's route to the edge is dead. Users browse the edge from
+      # their own networks — verify there instead.
+      warn "could not verify the assets from this host (ASSETS_VERIFY=warn); continuing"
+      warn "verify from any browser: $PROBE_URL"
+    else
+      cat <<NOTICE
 
 Domain still not serving after ~10 min — DNS/cert provisioning is unusually
 slow; NOT switching. Check Workers & Pages → $PROJECT → Custom domains in
 the dashboard, then re-run: scripts/deploy-assets.sh --switch
 NOTICE
-    exit 1
+      exit 1
+    fi
+  else
+    log "domain is serving the published assets"
   fi
-  log "domain is serving the published assets"
   [[ $SWITCH -eq 1 ]] || exit 0
   if [[ $TARGET == monitor ]]; then
     log "switching the monitor to the new image"

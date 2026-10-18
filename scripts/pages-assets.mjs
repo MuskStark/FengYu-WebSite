@@ -20,19 +20,27 @@ const excluded = (name) => name === MANIFEST || name.split('/').some(
 const FETCH_TIMEOUT_MS = Number(process.env.ASSETS_FETCH_TIMEOUT_MS || 120000);
 const FETCH_RETRIES = Number(process.env.ASSETS_FETCH_RETRIES || 6);
 
-async function fetchOrigin(fetcher, url) {
+// HTTP error statuses never retry; everything network-level (headers or body)
+// does — the body read must stay inside the retry loop because the timeout
+// signal spans the whole transfer: a route that delivers headers and then
+// stalls mid-body otherwise escapes as a bare "aborted due to timeout".
+class HttpStatusError extends Error {}
+
+const describe = (error) => (error.cause?.code ? `${error.message} [${error.cause.code}]` : error.message);
+
+async function fetchOrigin(fetcher, url, name = url) {
   for (let attempt = 0; ; attempt++) {
     try {
-      return await fetcher(url, {
+      const response = await fetcher(url, {
         redirect: 'follow', signal: AbortSignal.timeout(FETCH_TIMEOUT_MS), cache: 'no-store',
       });
+      if (!response.ok) throw new HttpStatusError(`HTTP ${response.status}: ${name}`);
+      return Buffer.from(await response.arrayBuffer());
     } catch (error) {
-      // Network-level failures (timeout, reset) are worth another shot; HTTP
-      // error statuses come back as responses and never retry.
-      if (attempt >= FETCH_RETRIES) {
-        throw new Error(`${url} failed after ${attempt + 1} attempt(s): ${error.message}`);
+      if (error instanceof HttpStatusError || attempt >= FETCH_RETRIES) {
+        throw new Error(`${url}: ${describe(error)}`);
       }
-      console.error(`fetch ${url} failed (${error.message}); retry ${attempt + 1}/${FETCH_RETRIES}`);
+      console.error(`fetch ${url} failed (${describe(error)}); retry ${attempt + 1}/${FETCH_RETRIES}`);
       await new Promise((resolve) => setTimeout(resolve, 3000 * (attempt + 1)));
     }
   }
@@ -72,11 +80,7 @@ function validate(manifest) {
 
 export async function retain({ stage, origin, fresh = false, previous = '', fetcher = fetch }) {
   const current = new Set(await files(stage));
-  const get = async (name) => {
-    const response = await fetchOrigin(fetcher, `${origin}/${name}`);
-    if (!response.ok) throw new Error(`HTTP ${response.status}: ${name}`);
-    return Buffer.from(await response.arrayBuffer());
-  };
+  const get = async (name) => fetchOrigin(fetcher, `${origin}/${name}`, name);
   const restore = async (name, data) => {
     // Current build wins for shells/public files; old hashed filenames survive.
     if (current.has(name)) return;

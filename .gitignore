@@ -35,6 +35,11 @@ logs/
 # Local deploy-script configuration (may hold the Cloudflare API token)
 deploy.conf
 
+# Local retention archive of the last successful Pages publish and its
+# one-time seed tarball (see scripts/deploy-assets.sh, ARCHIVE_DIR)
+.assets-archive/
+.assets-archive.tar.gz
+
 # Host-local monitor release image selection
 .monitor-release.yml
 docker-compose.monitor-build.override.yml
