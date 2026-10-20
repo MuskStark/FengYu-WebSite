@@ -1,0 +1,50 @@
+# Load-test overlay for the plugin-management stress run:
+#   docker compose -f docker-compose.yml -f docker-compose.loadtest.yml --profile app up -d
+#
+# Differences from the production stack:
+#  - store runs the `local` Spring profile so SeedData provisions the demo
+#    admin account (admin@infinia.local / Password123!) — the compose env vars
+#    still pin the datasource to this stack's PostgreSQL, so nothing runs on
+#    the profile's H2 default. SeedData refuses to seed outside local/dev/test.
+#  - upstream SkillHub sync is disabled: a load test must not depend on (or
+#    hammer) an external service.
+#  - PostgreSQL preloads pg_stat_statements so the run can count real queries
+#    per request (the N+1 evidence).
+services:
+  postgres:
+    command:
+      - postgres
+      - -c
+      - shared_preload_libraries=pg_stat_statements
+
+  store:
+    environment:
+      SPRING_PROFILES_ACTIVE: local
+      STORE_UPSTREAM_DEFAULTS_ENABLED: "false"
+      # The pinned MinIO release tag is unavailable from every reachable
+      # registry mirror, and nothing in this test exercises blob storage
+      # (the admin listing page is database-only) — fall back to the local
+      # filesystem backend on the storedata volume and start the store with
+      # --no-deps so MinIO/minio-init stay out of the stack entirely.
+      STORE_STORAGE_TYPE: local
+      # Compose base pins these to the stack's Postgres; re-asserted here so
+      # the local-profile H2 defaults in application.yml can never win.
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-store}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-store}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-store}
+      # The local profile also pins jpa.database-platform to the H2 dialect
+      # (its yaml block assumes the H2 fallback datasource) — against the
+      # stack's PostgreSQL that fails Hibernate's startup schema validation
+      # (timestamptz vs TIMESTAMP_UTC). Restore the dialect for this DB.
+      SPRING_JPA_DATABASE_PLATFORM: org.hibernate.dialect.PostgreSQLDialect
+
+  # Load generator on the compose network (sees `store` directly, no published
+  # port involved):  docker compose ... run --rm k6 run - < script.js
+  k6:
+    image: grafana/k6:1.4.0
+    profiles: ["loadtest"]
+    depends_on:
+      store:
+        condition: service_healthy
+    entrypoint: ["k6"]
+    command: ["version"]
