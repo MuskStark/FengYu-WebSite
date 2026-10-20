@@ -180,6 +180,15 @@ export const api = {
       body: JSON.stringify({ minBeeLevel }),
     }),
 
+  getAdminListings: (params: { query?: string; after?: string; limit?: number } = {}) => {
+    const search = new URLSearchParams();
+    if (params.query) search.set('query', params.query);
+    if (params.after) search.set('after', params.after);
+    if (params.limit) search.set('limit', String(params.limit));
+    const qs = search.toString();
+    return request<AdminListingPage>(`/api/v1/admin/listings${qs ? `?${qs}` : ''}`);
+  },
+
   // ── Admin remote database configuration (远程数据库配置) ──
 
   getRemoteDatabases: () =>
@@ -395,6 +404,13 @@ export type AdminListing = {
   featured: boolean;
   minBeeLevel: number;
   downloads: number;
+};
+/** Cursor-paged admin console page — server-side search keeps the response
+ * bounded no matter how large the catalog is. */
+export type AdminListingPage = {
+  items: AdminListing[];
+  nextCursor: string | null;
+  totalEstimate: number;
 };
 export type AdminAppUploadStart = components['schemas']['AdminAppUploadStart'];
 export type AdminAppUploadSession = components['schemas']['AdminAppUploadSession'];

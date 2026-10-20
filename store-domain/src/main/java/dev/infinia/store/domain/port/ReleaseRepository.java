@@ -33,6 +33,15 @@ public interface ReleaseRepository {
      */
     List<Release> findVisibleByListingIds(java.util.Collection<UUID> listingIds);
 
+    /**
+     * Newest visible version per listing in one projection query. The admin
+     * console only needs the version string; loading full release aggregates
+     * would drag their artifact/dependency/permission collections along
+     * (three statements per release), which is what froze the console page.
+     */
+    java.util.Map<UUID, dev.infinia.store.contract.semver.SemVer>
+            findLatestVisibleVersions(java.util.Collection<UUID> listingIds);
+
     /** All published releases of a given type — used by the app update feed. */
     List<Release> findVisibleByType(ListingType type);
 

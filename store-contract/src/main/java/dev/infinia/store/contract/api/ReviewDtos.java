@@ -123,6 +123,16 @@ public final class ReviewDtos {
             int minBeeLevel,
             long downloads) {}
 
+    /**
+     * Cursor-paged admin console page (same envelope as the catalog page):
+     * the console renders a page at a time with server-side text search, so
+     * the response no longer scales with the size of the whole catalog.
+     */
+    public record AdminListingPageDto(
+            List<AdminListingDto> items,
+            String nextCursor,
+            long totalEstimate) {}
+
     public record UpstreamSyncResultDto(
             String upstream,
             int imported,

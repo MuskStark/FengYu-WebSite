@@ -526,11 +526,18 @@ export default function AdminView() {
 
   // ---- listing curation (design §12.4 管理: 上下架/推荐/Infinia Level 门槛) ----
   const [adminListings, setAdminListings] = useState<AdminListing[]>([]);
-  const [listingsLoading, setListingsLoading] = useState(false);
+  // Starts true: the mount effect fetches unconditionally, and a false initial
+  // value paints an "empty" table for a frame before the request registers —
+  // the "UI shows before data arrives" flash.
+  const [listingsLoading, setListingsLoading] = useState(true);
+  const [listingsError, setListingsError] = useState<string | null>(null);
   const [listingSearch, setListingSearch] = useState('');
+  const [listingsCursor, setListingsCursor] = useState<string | null>(null);
+  const [listingsTotal, setListingsTotal] = useState(0);
 
-  /** 367+ rows render without pagination, so a client-side filter is the relief
-   * valve — same pattern as the user table above. */
+  /** Instant local narrowing of what is loaded; the debounced server query
+   * below is the one that scales — its predicate runs in SQL now, because the
+   * old load-everything console froze whole catalogs into the page. */
   const filteredListings = useMemo(() => {
     const q = listingSearch.trim().toLowerCase();
     if (!q) return adminListings;
@@ -541,14 +548,53 @@ export default function AdminView() {
     );
   }, [adminListings, listingSearch]);
 
-  async function loadAdminListings() {
+  /** Loads a page of the curation console. append=true continues from the
+   * cursor (the "load more" control); a fresh load always restarts at page 1
+   * of the current search term. */
+  async function loadAdminListings(append = false) {
     setListingsLoading(true);
+    setListingsError(null);
     try {
-      setAdminListings(await api.get<AdminListing[]>('/api/v1/admin/listings'));
+      const page = await api.getAdminListings({
+        query: listingSearch.trim() || undefined,
+        after: append && listingsCursor ? listingsCursor : undefined,
+      });
+      setListingsCursor(page.nextCursor);
+      setListingsTotal(page.totalEstimate);
+      setAdminListings((current) =>
+        append
+          ? [
+              ...current.filter(
+                (l) => !page.items.some((p) => p.listingId === l.listingId),
+              ),
+              ...page.items,
+            ]
+          : page.items,
+      );
+    } catch (e) {
+      // A failed fetch must not read as "no listings": the old silent path
+      // rendered an empty table whenever the request died (proxy timeout,
+      // network drop) — indistinguishable from an actually empty catalog.
+      setListingsError(e instanceof Error ? e.message : String(e));
     } finally {
       setListingsLoading(false);
     }
   }
+
+  // Server-side search with a debounce: each keystroke is free (local filter
+  // above), and one SQL-pushed request lands shortly after typing stops. The
+  // mount effect in this component performs the initial page load, so the
+  // first run here is skipped.
+  const listingSearchInitialized = useRef(false);
+  useEffect(() => {
+    if (!listingSearchInitialized.current) {
+      listingSearchInitialized.current = true;
+      return;
+    }
+    const handle = setTimeout(() => void loadAdminListings(), 400);
+    return () => clearTimeout(handle);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [listingSearch]);
 
   async function toggleVisibility(row: AdminListing) {
     // Delisting hides the listing from every catalog at once — worth a confirm.
@@ -655,8 +701,23 @@ export default function AdminView() {
   const [withdrawLoading, setWithdrawLoading] = useState(false);
   const [withdrawMessage, setWithdrawMessage] = useState('');
   const [withdrawError, setWithdrawError] = useState<string | null>(null);
+  const [withdrawOptions, setWithdrawOptions] = useState<AdminListing[]>([]);
+  const [withdrawSearch, setWithdrawSearch] = useState('');
 
-  const WITHDRAW_LISTING_OPTIONS = adminListings.map((l) => ({
+  /** The picker feeds from the paged admin search — a dropdown enumerating
+   * every listing was both frozen-slow and unusable past a few hundred rows,
+   * so the admin narrows by name first. */
+  useEffect(() => {
+    const handle = setTimeout(() => {
+      api
+        .getAdminListings({ query: withdrawSearch.trim() || undefined })
+        .then((page) => setWithdrawOptions(page.items))
+        .catch(() => setWithdrawOptions([]));
+    }, 400);
+    return () => clearTimeout(handle);
+  }, [withdrawSearch]);
+
+  const WITHDRAW_LISTING_OPTIONS = withdrawOptions.map((l) => ({
     value: l.listingId,
     label: l.name,
   }));
@@ -2116,6 +2177,11 @@ export default function AdminView() {
                   <p className="text-sm text-muted">
                     {t('admin.listingsHint')}
                   </p>
+                  {listingsError && (
+                    <p className="alert alert-error" role="alert">
+                      {listingsError}
+                    </p>
+                  )}
                   <div className="flex flex-wrap items-center gap-3">
                     <input
                       value={listingSearch}
@@ -2124,7 +2190,9 @@ export default function AdminView() {
                       className="input max-w-md"
                     />
                     <span className="text-xs text-muted">
-                      {t('admin.listingsCount', { n: filteredListings.length })}
+                      {listingsLoading && adminListings.length
+                        ? t('common.loading')
+                        : t('admin.listingsCount', { n: listingsTotal })}
                     </span>
                   </div>
                   {listingsLoading && !adminListings.length ? (
@@ -2245,6 +2313,22 @@ export default function AdminView() {
                           ))}
                         </tbody>
                       </table>
+                    </div>
+                  )}
+                  {listingsCursor && (
+                    <div className="flex justify-center">
+                      <button
+                        className="btn btn-secondary"
+                        disabled={listingsLoading}
+                        onClick={() => void loadAdminListings(true)}
+                      >
+                        {listingsLoading
+                          ? t('common.loading')
+                          : t('admin.listingsLoadMore', {
+                              n: adminListings.length,
+                              total: listingsTotal,
+                            })}
+                      </button>
                     </div>
                   )}
                 </section>
@@ -2484,6 +2568,12 @@ export default function AdminView() {
                         <span className="mb-1 block">
                           {t('admin.withdrawPickListing')}
                         </span>
+                        <input
+                          value={withdrawSearch}
+                          onChange={(e) => setWithdrawSearch(e.target.value)}
+                          placeholder={t('admin.listingSearch')}
+                          className="input mb-2"
+                        />
                         <SelectMenu
                           value={withdrawListingId}
                           options={WITHDRAW_LISTING_OPTIONS}

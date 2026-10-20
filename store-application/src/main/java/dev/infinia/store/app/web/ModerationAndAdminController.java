@@ -8,6 +8,7 @@ import dev.infinia.store.app.service.ModerationService;
 import dev.infinia.store.contract.api.ReviewDtos;
 import dev.infinia.store.domain.model.Listing;
 import dev.infinia.store.domain.model.ListingReport;
+import dev.infinia.store.domain.port.ListingQuery;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -85,17 +86,29 @@ class AdminController {
 
     // ---- listing curation (design §12.4 管理: 上下架/推荐) ----
 
-    /** Every listing in every visibility/status — the admin console view. */
+    /**
+     * Every listing in every visibility/status — the admin console view.
+     * Cursor-paged with the text search pushed into SQL: the former
+     * load-everything pass ran five statements per listing (row + EAGER i18n +
+     * release + three release collections), which froze the console on
+     * catalogs of thousands. A page costs a constant handful of statements.
+     */
     @GetMapping("/listings")
-    public List<ReviewDtos.AdminListingDto> allListings() {
+    public ReviewDtos.AdminListingPageDto allListings(
+            @RequestParam(required = false) String query,
+            @RequestParam(required = false) String after,
+            @RequestParam(required = false, defaultValue = "50") Integer limit) {
         principal.requireUserId();
-        return listings.findAllForAdmin().stream().map(l -> {
-            String latest = releases.findVisibleByListingId(l.id).stream()
-                    .findFirst().map(r -> r.version.toString()).orElse(null);
-            return new ReviewDtos.AdminListingDto(l.id.toString(), l.coordinate().toString(),
-                    l.name("en"), l.type.name(), l.status, l.visibility.name(), latest,
-                    l.featured, l.minBeeLevel, l.downloads);
-        }).toList();
+        int bounded = Math.clamp(limit == null ? 50 : limit, 1, 200);
+        ListingQuery.ListingPage page = listings.searchForAdmin(query, after, bounded);
+        java.util.Map<UUID, dev.infinia.store.contract.semver.SemVer> latest =
+                releases.findLatestVisibleVersions(
+                        page.items().stream().map(l -> l.id).toList());
+        List<ReviewDtos.AdminListingDto> items = page.items().stream()
+                .map(l -> toAdminDto(l, latest.get(l.id)))
+                .toList();
+        return new ReviewDtos.AdminListingPageDto(items,
+                page.hasMore() ? page.lastId() : null, page.totalEstimate());
     }
 
     /** List (PUBLIC) or delist (UNLISTED) a listing — hides it from every catalog. */
@@ -172,10 +185,14 @@ class AdminController {
     }
 
     private ReviewDtos.AdminListingDto toAdminDto(dev.infinia.store.domain.model.Listing l) {
-        String latest = releases.findVisibleByListingId(l.id).stream()
-                .findFirst().map(r -> r.version.toString()).orElse(null);
+        return toAdminDto(l, releases.findLatestVisibleVersions(List.of(l.id)).get(l.id));
+    }
+
+    private ReviewDtos.AdminListingDto toAdminDto(dev.infinia.store.domain.model.Listing l,
+            dev.infinia.store.contract.semver.SemVer latest) {
         return new ReviewDtos.AdminListingDto(l.id.toString(), l.coordinate().toString(),
-                l.name("en"), l.type.name(), l.status, l.visibility.name(), latest,
+                l.name("en"), l.type.name(), l.status, l.visibility.name(),
+                latest == null ? null : latest.toString(),
                 l.featured, l.minBeeLevel, l.downloads);
     }
 

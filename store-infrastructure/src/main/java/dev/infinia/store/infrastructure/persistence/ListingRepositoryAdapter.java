@@ -249,8 +249,79 @@ public class ListingRepositoryAdapter implements ListingRepository {
     }
 
     @Override
-    public List<Listing> findAllForAdmin() {
-        return jpa.findAll().stream().map(ListingRepositoryAdapter::toDomain).toList();
+    public ListingQuery.ListingPage searchForAdmin(String text, String afterId, int limit) {
+        Seek seek = null;
+        if (afterId != null && !afterId.isBlank()) {
+            UUID cursorId;
+            try {
+                cursorId = UUID.fromString(afterId);
+            } catch (IllegalArgumentException e) {
+                return emptyPage();
+            }
+            ListingEntity cursor = jpa.findById(cursorId).orElse(null);
+            if (cursor == null) {
+                return emptyPage();
+            }
+            seek = new Seek(cursorId, cursor.updatedAt);
+        }
+
+        List<UUID> ids = adminPagedIds(text, seek, limit + 1);
+        boolean hasMore = ids.size() > limit;
+        if (hasMore) {
+            ids = ids.subList(0, limit);
+        }
+        List<Listing> page = loadWithLocalizations(ids);
+        long total = countForAdmin(text);
+
+        Listing last = page.isEmpty() ? null : page.get(page.size() - 1);
+        return new ListingQuery.ListingPage(page, hasMore,
+                last == null ? null : SortKey.RECENT.stringValue(last),
+                last == null ? null : last.id.toString(), total);
+    }
+
+    /**
+     * Admin console page ids: every visibility/status (the console curates
+     * delisted and pending rows too), newest-updated first, keyset-seeked on
+     * the same (updatedAt desc, id asc) tuple as the RECENT catalog sort.
+     */
+    private List<UUID> adminPagedIds(String text, Seek seek, int limit) {
+        StringBuilder hql = new StringBuilder("select l.id from ListingEntity l where 1=1");
+        Map<String, Object> params = new LinkedHashMap<>();
+        appendAdminTextFilter(text, hql, params);
+        if (seek != null) {
+            hql.append(" and (l.updatedAt < :seekValue")
+                    .append(" or (l.updatedAt = :seekValue and l.id > :seekId))");
+            params.put("seekValue", seek.value());
+            params.put("seekId", seek.id());
+        }
+        hql.append(" order by l.updatedAt desc, l.id asc");
+        var q = em.createQuery(hql.toString(), UUID.class).setMaxResults(limit);
+        params.forEach(q::setParameter);
+        return q.getResultList();
+    }
+
+    private long countForAdmin(String text) {
+        StringBuilder hql = new StringBuilder("select count(l) from ListingEntity l where 1=1");
+        Map<String, Object> params = new LinkedHashMap<>();
+        appendAdminTextFilter(text, hql, params);
+        var q = em.createQuery(hql.toString(), Long.class);
+        params.forEach(q::setParameter);
+        return q.getSingleResult();
+    }
+
+    /** Admin text filter: coordinate parts (namespace/slug/type) or any i18n name. */
+    private static void appendAdminTextFilter(String text, StringBuilder hql,
+            Map<String, Object> params) {
+        String t = text == null ? null : text.toLowerCase(Locale.ROOT).trim();
+        if (t == null || t.isEmpty()) {
+            return;
+        }
+        hql.append(" and (lower(l.slug) like :textMatch")
+                .append(" or lower(l.namespace) like :textMatch")
+                .append(" or lower(l.type) like :textMatch")
+                .append(" or exists (select l2.id from ListingEntity l2 join l2.localizations loc")
+                .append(" where l2.id = l.id and lower(loc.name) like :textMatch))");
+        params.put("textMatch", "%" + t + "%");
     }
 
     @Override

@@ -977,7 +977,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Every listing with curation state — PLATFORM_ADMIN */
+        /**
+         * Cursor-paged listing curation search — PLATFORM_ADMIN
+         * @description Every listing regardless of visibility, newest-updated first. The text predicate (i18n name or coordinate parts) runs in SQL; a page costs a constant number of statements however large the catalog is.
+         */
         get: operations["listAllListings"];
         put?: never;
         post?: never;
@@ -2297,6 +2300,16 @@ export interface components {
             minBeeLevel?: number;
             /** Format: int64 */
             downloads?: number;
+        };
+        AdminListingPage: {
+            items?: components["schemas"]["AdminListing"][];
+            /** @description listingId cursor for the next page; absent on the last page */
+            nextCursor?: string | null;
+            /**
+             * Format: int64
+             * @description Total listings matching the filter (not just this page)
+             */
+            totalEstimate?: number;
         };
         AdminAppUploadStart: {
             /** @description SemVer of the update package — inferred from the filename when omitted */
@@ -4038,20 +4051,26 @@ export interface operations {
     };
     listAllListings: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Contains-match over i18n name */
+                query?: string;
+                /** @description Cursor (last listingId of the previous page) */
+                after?: string;
+                limit?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description All listings regardless of visibility */
+            /** @description One page of listings with curation state */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["AdminListing"][];
+                    "application/json": components["schemas"]["AdminListingPage"];
                 };
             };
         };

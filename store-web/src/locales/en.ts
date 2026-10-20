@@ -711,6 +711,7 @@ export default {
     delistConfirm: 'Delisting hides “{name}” from every catalog. Continue?',
     listingSearch: 'Search by name or coordinate',
     listingsCount: '{n} listings',
+    listingsLoadMore: 'Load more (showing {n} of {total})',
     reason: {
       malware: 'Malware',
       policy_violation: 'Policy violation',

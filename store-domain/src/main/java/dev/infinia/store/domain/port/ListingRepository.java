@@ -23,8 +23,15 @@ public interface ListingRepository {
 
     List<Listing> findByPublisher(UUID publisherUserId);
 
-    /** Every listing regardless of visibility/status — admin console only. */
-    List<Listing> findAllForAdmin();
+    /**
+     * Paged admin-console search: every listing regardless of visibility/status,
+     * newest-updated first, with the text predicate (name/coordinate contains)
+     * pushed into SQL. The former {@code findAllForAdmin()} loaded every row and
+     * touched the EAGER i18n map per row, and the console then queried releases
+     * per listing — five statements per listing, so a catalog of thousands froze
+     * the page; this keeps a page at a constant statement count.
+     */
+    ListingQuery.ListingPage searchForAdmin(String text, String afterId, int limit);
 
     void save(Listing listing);
 

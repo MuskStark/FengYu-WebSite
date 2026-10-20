@@ -82,6 +82,36 @@ public class ReleaseRepositoryAdapter implements ReleaseRepository {
                 .toList();
     }
 
+    /**
+     * Version-string projection over the page's listings: one statement, no
+     * release rows hydrated, so the element collections (artifacts, deps,
+     * permissions) are never touched. SemVer ordering is resolved in Java
+     * because the column is a VARCHAR whose string order is not semver order.
+     */
+    @Override
+    public java.util.Map<UUID, SemVer> findLatestVisibleVersions(
+            java.util.Collection<UUID> listingIds) {
+        if (listingIds.isEmpty()) {
+            return java.util.Map.of();
+        }
+        List<Object[]> rows = em.createQuery(
+                "select r.listingId, r.version from ReleaseEntity r"
+                        + " where r.listingId in :ids and r.status in :statuses",
+                Object[].class)
+                .setParameter("ids", listingIds)
+                .setParameter("statuses", VISIBLE_STATUSES)
+                .getResultList();
+        java.util.Map<UUID, SemVer> latest = new java.util.HashMap<>();
+        for (Object[] row : rows) {
+            SemVer v = parseSafe((String) row[1]);
+            if (v == null) {
+                continue;
+            }
+            latest.merge((UUID) row[0], v, (a, b) -> a.compareTo(b) >= 0 ? a : b);
+        }
+        return latest;
+    }
+
     @Override
     public List<Release> findByStatus(ReleaseStatus status) {
         return jpa.findByStatus(status.name()).stream()

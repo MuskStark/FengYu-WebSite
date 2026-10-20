@@ -709,6 +709,7 @@ export default {
     delistConfirm: '下架会从所有目录隐藏「{name}」。确定继续吗？',
     listingSearch: '搜索名称或坐标',
     listingsCount: '共 {n} 个商品',
+    listingsLoadMore: '加载更多（已显示 {n} / {total}）',
     reason: {
       malware: '恶意软件',
       policy_violation: '违反政策',

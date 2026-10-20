@@ -1189,17 +1189,23 @@ paths:
     get:
       operationId: listAllListings
       tags: [Admin]
-      summary: Every listing with curation state — PLATFORM_ADMIN
+      summary: Cursor-paged listing curation search — PLATFORM_ADMIN
+      description: >-
+        Every listing regardless of visibility, newest-updated first. The text
+        predicate (i18n name or coordinate parts) runs in SQL; a page costs a
+        constant number of statements however large the catalog is.
       security:
         - bearerAuth: []
+      parameters:
+        - { name: query, in: query, required: false, schema: { type: string }, description: Contains-match over i18n name, namespace, slug and type }
+        - { name: after, in: query, required: false, schema: { type: string }, description: Cursor (last listingId of the previous page) }
+        - { name: limit, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }
       responses:
         '200':
-          description: All listings regardless of visibility
+          description: One page of listings with curation state
           content:
             application/json:
-              schema:
-                type: array
-                items: { $ref: '#/components/schemas/AdminListing' }
+              schema: { $ref: '#/components/schemas/AdminListingPage' }
 
   /admin/listings/{listingId}/visibility:
     post:
@@ -2742,6 +2748,15 @@ components:
         featured: { type: boolean }
         minBeeLevel: { type: integer, minimum: 0, maximum: 4 }
         downloads: { type: integer, format: int64 }
+
+    AdminListingPage:
+      type: object
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/AdminListing' }
+        nextCursor: { type: string, nullable: true, description: listingId cursor for the next page; absent on the last page }
+        totalEstimate: { type: integer, format: int64, description: Total listings matching the filter (not just this page) }
 
     AdminAppUploadStart:
       type: object
