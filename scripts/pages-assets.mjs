@@ -27,24 +27,34 @@ const FETCH_RETRIES = Number(process.env.ASSETS_FETCH_RETRIES || 6);
 // stalls mid-body otherwise escapes as a bare "aborted due to timeout".
 class HttpStatusError extends Error {}
 
-const describe = (error) => (error.cause?.code ? `${error.message} [${error.cause.code}]` : error.message);
+const describe = (error) => (error.cause?.code
+  ? `${error.message || error.name} [${error.cause.code}]`
+  : error.message || error.name || 'unknown error');
 
 // Origin reads must NOT use the global fetch: undici caps the TCP/TLS
 // handshake at 10s, and deploy hosts sit on routes that need >10s just to
 // connect (curl gets HTTP 200 in ~13s while fetch dies ETIMEDOUT before
 // FETCH_TIMEOUT_MS ever applies). A plain https client with one timeout
 // spanning handshake AND body, plus keep-alive, survives those routes and
-// pays the slow handshake once for the whole retain pass.
+// pays the slow handshake once for the whole retain pass. NB: Cloudflare
+// Pages IGNORES Range requests (200 + full body), so byte-resume is not an
+// option — retries always restart the file; budget windows accordingly
+// (ASSETS_FETCH_TIMEOUT_MS / ASSETS_FETCH_RETRIES in deploy.conf).
 const originAgent = new HttpsAgent({ keepAlive: true });
 const slowRouteFetch = (url, { signal } = {}) => new Promise((resolve, reject) => {
   const req = httpsRequest(url, { agent: originAgent, headers: { 'accept-encoding': 'identity' } }, (res) => {
     const chunks = [];
     res.on('data', (chunk) => chunks.push(chunk));
-    res.on('end', () => resolve({
-      ok: res.statusCode >= 200 && res.statusCode < 300,
-      status: res.statusCode,
-      arrayBuffer: async () => Buffer.concat(chunks),
-    }));
+    res.on('error', reject);
+    res.on('end', () => {
+      // A truncated body can END cleanly (content-length mismatch): check.
+      if (!res.complete) { reject(new Error('truncated response')); return; }
+      resolve({
+        ok: res.statusCode >= 200 && res.statusCode < 300,
+        status: res.statusCode,
+        arrayBuffer: async () => Buffer.concat(chunks),
+      });
+    });
   });
   req.setTimeout(FETCH_TIMEOUT_MS, () => req.destroy(new Error('socket timed out')));
   if (signal) {
