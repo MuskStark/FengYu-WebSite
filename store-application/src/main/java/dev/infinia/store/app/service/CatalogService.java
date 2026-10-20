@@ -21,7 +21,10 @@ import dev.infinia.store.domain.service.DependencySolver;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 
 /**
  * Catalog, resolution and delivery logic (design §5.3, §8.4, §9.4).
@@ -63,9 +66,24 @@ public class CatalogService {
                 null, query.afterId(), query.featured(), beeLevels.viewerLevel(),
                 query.limit()));
 
+        // One batched query for the whole page instead of a release lookup per
+        // listing — a 100-item page otherwise costs 100 extra round-trips.
+        Map<UUID, List<Release>> visibleByListing = new HashMap<>();
+        if (!page.items().isEmpty()) {
+            List<UUID> listingIds = new ArrayList<>();
+            for (Listing listing : page.items()) {
+                listingIds.add(listing.id);
+            }
+            for (Release release : releases.findVisibleByListingIds(listingIds)) {
+                visibleByListing.computeIfAbsent(release.listingId, k -> new ArrayList<>())
+                        .add(release);
+            }
+        }
+
         List<CatalogItemDto> items = new ArrayList<>();
         for (Listing listing : page.items()) {
-            Release latest = latestCompatible(listing, query);
+            Release latest = latestCompatible(listing, query,
+                    visibleByListing.getOrDefault(listing.id, List.of()));
             if (latest == null) {
                 // Catalog rows must be installable: listings without a published
                 // release (e.g. rejected upstream imports) stay invisible.
@@ -221,8 +239,7 @@ public class CatalogService {
         }
     }
 
-    private Release latestCompatible(Listing listing, BrowseQuery query) {
-        List<Release> visible = releases.findVisibleByListingId(listing.id);
+    private Release latestCompatible(Listing listing, BrowseQuery query, List<Release> visible) {
         Release best = null;
         for (Release release : visible) {
             if (release.status != ReleaseStatus.PUBLISHED) {

@@ -27,6 +27,12 @@ public interface ReleaseRepository {
     /** All currently published releases of one listing across channels. */
     List<Release> findVisibleByListingId(UUID listingId);
 
+    /**
+     * Visible (published/deprecated) releases of many listings in one query —
+     * catalog pages batch this instead of a lookup per listing.
+     */
+    List<Release> findVisibleByListingIds(java.util.Collection<UUID> listingIds);
+
     /** All published releases of a given type — used by the app update feed. */
     List<Release> findVisibleByType(ListingType type);
 

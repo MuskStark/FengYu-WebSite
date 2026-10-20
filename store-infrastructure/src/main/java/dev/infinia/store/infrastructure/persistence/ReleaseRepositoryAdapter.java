@@ -72,6 +72,17 @@ public class ReleaseRepositoryAdapter implements ReleaseRepository {
     }
 
     @Override
+    public List<Release> findVisibleByListingIds(java.util.Collection<UUID> listingIds) {
+        if (listingIds.isEmpty()) {
+            return List.of();
+        }
+        return jpa.findByListingIdIn(new ArrayList<>(listingIds)).stream()
+                .filter(e -> VISIBLE_STATUSES.contains(e.status))
+                .map(ReleaseRepositoryAdapter::toDomain)
+                .toList();
+    }
+
+    @Override
     public List<Release> findByStatus(ReleaseStatus status) {
         return jpa.findByStatus(status.name()).stream()
                 .map(ReleaseRepositoryAdapter::toDomain)

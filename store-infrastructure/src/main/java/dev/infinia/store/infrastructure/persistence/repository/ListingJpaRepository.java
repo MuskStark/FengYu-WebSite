@@ -14,6 +14,11 @@ public interface ListingJpaRepository extends JpaRepository<ListingEntity, UUID>
 
     Optional<ListingEntity> findByNamespaceIdAndSlugAndType(UUID namespaceId, String slug, String type);
 
+    /** Coordinate lookup pushed into SQL — the old variant scanned every listing of the type. */
+    Optional<ListingEntity> findByNamespaceAndSlugAndType(String namespace, String slug, String type);
+
+    boolean existsByNamespaceAndSlugAndType(String namespace, String slug, String type);
+
     List<ListingEntity> findByPublisherUserId(UUID publisherUserId);
 
     @Query("SELECT l FROM ListingEntity l WHERE (:type IS NULL OR l.type = :type)")

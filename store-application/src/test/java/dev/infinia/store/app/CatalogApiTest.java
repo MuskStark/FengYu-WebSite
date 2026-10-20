@@ -67,6 +67,48 @@ class CatalogApiTest {
     }
 
     @Test
+    @SuppressWarnings("unchecked")
+    void cursorWalkCoversTheCatalogWithoutRepeats() throws Exception {
+        var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        java.util.Set<Object> seen = new java.util.HashSet<>();
+        String cursor = null;
+        long totalEstimate = -1;
+        int pages = 0;
+        while (pages < 50) {
+            String url = "/api/v1/catalog?limit=2" + (cursor == null ? "" : "&cursor=" + cursor);
+            ResponseEntity<String> response = http().getJson(url, String.class, null);
+            assertEquals(200, response.getStatusCode().value());
+            Map<String, Object> body = mapper.readValue(response.getBody(), Map.class);
+            List<Map<String, Object>> items = (List<Map<String, Object>>) body.get("items");
+            assertTrue(items.size() <= 2, "a page must honor the limit, got " + items.size());
+            for (Map<String, Object> item : items) {
+                assertTrue(seen.add(item.get("coordinate")),
+                        "cursor walk repeated " + item.get("coordinate"));
+            }
+            totalEstimate = ((Number) body.get("totalEstimate")).longValue();
+            cursor = (String) body.get("nextCursor");
+            pages++;
+            if (cursor == null || items.isEmpty()) {
+                break;
+            }
+        }
+        assertTrue(pages > 1, "seeded catalog must span more than one limit=2 page");
+        assertTrue(seen.size() <= totalEstimate,
+                "walked " + seen.size() + " items but totalEstimate said " + totalEstimate);
+    }
+
+    @Test
+    void garbageCursorYieldsAnEmptyPageInsteadOfAnError() throws Exception {
+        ResponseEntity<String> response = http().getJson(
+                "/api/v1/catalog?limit=2&cursor=not-a-uuid", String.class, null);
+        assertEquals(200, response.getStatusCode().value());
+        Map<String, Object> body = new com.fasterxml.jackson.databind.ObjectMapper()
+                .readValue(response.getBody(), Map.class);
+        assertTrue(((List<?>) body.get("items")).isEmpty());
+        assertNull(body.get("nextCursor"));
+    }
+
+    @Test
     void filtersByTypeAndSearch() {
         ResponseEntity<String> plugins = http().getJson("/api/v1/catalog?type=PLUGIN",
                 String.class, null);
